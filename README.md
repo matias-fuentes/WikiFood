@@ -1,7 +1,5 @@
 # WikiFood
 
-### WARNING! THE APPLICATION IS CURRENTLY IN DEVELOPMENT AND MIGHT NOT WORK PROPERLY. TRY REFRESHING IF ANY TROUBLE. SORRY FOR THE INCONVENIENCES!
-
 Video Presentation: https://www.youtube.com/watch?v=gO3a_suqdls
 
 How I've made it: https://www.youtube.com/watch?v=AwaIReEUcrU
