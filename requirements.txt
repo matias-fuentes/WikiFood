@@ -40,7 +40,7 @@ requests-toolbelt==0.9.1
 rsa==4.8
 six==1.16.0
 termcolor==1.1.0
-typing-extensions==3.10.0.2
+typing-extensions==4.1.1
 urllib3==1.26.7
 uuid==1.30
 webptools==0.0.7
