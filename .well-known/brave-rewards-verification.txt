@@ -1,0 +1,4 @@
+This is a Brave Rewards publisher verification file.
+
+Domain: cs50-wikifood.herokuapp.com
+Token: d52ec6006cb372826d52cdda5422111dc244055bcd8f3d8398be9e5824a75c1c
