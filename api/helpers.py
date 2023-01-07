@@ -10,8 +10,7 @@ from functools import wraps
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
-envVars = os.environ
-apiKey = envVars.get('apiKey')
+apiKey = os.environ.get('API_KEY')
 
 # Makes it necessary to log in to enter to the specified page
 def login_required(f):
@@ -129,26 +128,26 @@ def cropImage(image):
 # Saves images (banner and profile pictures), keeps a record of the images of each image of each user, and updates the uploaded images
 def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
     config = {
-        "apiKey": envVars.get('firebaseApiKey'),
-        "authDomain": envVars.get('authDomain'),
-        "projectId": envVars.get('projectId'),
-        "storageBucket": envVars.get('storageBucket'),
-        "messagingSenderId": envVars.get('messagingSenderId'),
-        "appId": envVars.get('appId'),
-        "measurementId": envVars.get('measurementId'),
+        "apiKey": os.environ.get('FIREBASE_API_KEY'),
+        "authDomain": os.environ.get('AUTH_DOMAIN'),
+        "projectId": os.environ.get('PROJECT_ID'),
+        "storageBucket": os.environ.get('STORAGE_BUCKET'),
+        "messagingSenderId": os.environ.get('MESSAGING_SENDER_ID'),
+        "appId": os.environ.get('APP_ID'),
+        "measurementId": os.environ.get('MEASUREMENT_ID'),
         "serviceAccount": {
-                "type": envVars.get('type'),
-                "project_id": envVars.get('projectId'),
-                "private_key_id": envVars.get('privateKeyId'),
-                "private_key": envVars.get('privateKey').replace('\\n', '\n'),
-                "client_email": envVars.get('clientEmail'),
-                "client_id": envVars.get('clientId'),
-                "auth_uri": envVars.get('authUri'),
-                "token_uri": envVars.get('tokenUri'),
-                "auth_provider_x509_cert_url": envVars.get('authProviderx509CertURL'),
-                "client_x509_cert_url": envVars.get('clientx509CertURL')
+                "type": os.environ.get('TYPE'),
+                "project_id": os.environ.get('PROJECT_ID'),
+                "private_key_id": os.environ.get('PRIVATE_KEY_ID'),
+                "private_key": os.environ.get('PRIVATE_KEY').replace('\\n', '\n'),
+                "client_email": os.environ.get('CLIENT_EMAIL'),
+                "client_id": os.environ.get('CLIENT_ID'),
+                "auth_uri": os.environ.get('AUTH_URI'),
+                "token_uri": os.environ.get('TOKEN_URI'),
+                "auth_provider_x509_cert_url": os.environ.get('AUTH_PROVIDER_X509_CERT_URL'),
+                "client_x509_cert_url": os.environ.get('CLIENT_X509_CERT_URL')
             },
-        "databaseURL": envVars.get('databaseURL')
+        "databaseURL": os.environ.get('DATABASE_URL')
     }
 
     firebase = pyrebase.initialize_app(config)

@@ -1,25 +1,23 @@
 import mysql.connector.pooling
 import os
-
-envVars = os.environ
-pool = mysql.connector.pooling.MySQLConnectionPool(
-    pool_name=envVars.get('poolName'),
-    pool_reset_session=True,
-    pool_size=4,
-    host=envVars.get('host'),
-    port=envVars.get('port'),
-    user=envVars.get('user'),
-    password=envVars.get('password'),
-    db=envVars.get('db')
-)
-
 from re import fullmatch
 from helpers import login_required, userOrEmail, query, article, saveArticle, searchPost, uploadImage, getUsername, getProfInfo
 from flask import Flask, redirect, render_template, request, session
 from werkzeug.security import generate_password_hash
 
+pool = mysql.connector.pooling.MySQLConnectionPool(
+    pool_name=os.environ.get('POOL_NAME'),
+    pool_reset_session=True,
+    pool_size=4,
+    host=os.environ.get('HOST'),
+    port=os.environ.get('PORT'),
+    user=os.environ.get('USER'),
+    password=os.environ.get('PASSWORD'),
+    db=os.environ.get('DB')
+)
+
 app = Flask(__name__)
-app.secret_key=envVars.get('secretKey')
+app.secret_key=os.environ.get('secretKey')
 
 # Ensure templates are auto-reloaded
 app.config["TEMPLATES_AUTO_RELOAD"] = True
