@@ -228,10 +228,6 @@ td {
         font-size: 1.2rem;
     }
 
-    th > .edge-td-container {
-        height: 4.8rem;
-    }
-
     td {
         padding: 0;
     }

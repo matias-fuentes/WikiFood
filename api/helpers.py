@@ -9,6 +9,10 @@ from flask import redirect, render_template, request, session
 from functools import wraps
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv, find_dotenv
+from bson import ObjectId
+
+load_dotenv(find_dotenv())
 
 apiKey = os.environ.get('API_KEY')
 
@@ -28,21 +32,25 @@ def login_required(f):
 
 
 # Recognizes if you're trying to log in with your username or your email, and ends up logging in if the credentials are valid
-def userOrEmail(email, user, password, passRegEx, session, cursor, connection):
+def userOrEmail(email, user, password, passRegEx, session, connection):
     condition = 'email' if email == True else 'username'
-    userDB = cursor.execute(
-        f"SELECT id, hash FROM users WHERE {condition} = '{user}'")
-    userDB = cursor.fetchall()
-    connection.close()
+    db = connection["wikifood"]
+    usersTable = db["users"]
+
+    userDB = usersTable.find({ f"{condition}": user }, { "hash": 1 })
+    # userDB = cursor.execute(
+    #     f"SELECT _id, hash FROM users WHERE {condition} = '{user}'")
+    # userDB = cursor.fetchall()
 
     if userDB:
         # Check if password is valid or not
         if not fullmatch(passRegEx, password):
             return render_template("login.html", error=True)
 
-        checkPassword = check_password_hash(userDB[0][1], password)
+        checkPassword = check_password_hash(userDB[0]["hash"], password)
         if checkPassword:
-            session["user_id"] = userDB[0][0]
+            session["user_id"] = str(userDB[0]["_id"])
+            connection.close()
             return redirect("/")
 
     return render_template("login.html", error=True)
@@ -53,6 +61,7 @@ apiDomain = 'https://api.spoonacular.com'
 # Make queries to search at the API
 def query(q):
     url = f'{apiDomain}/food/search?apiKey={apiKey}&query={q}'
+    print(url)
     response = requests.get(url).json()['searchResults']
 
     for i in response:
@@ -63,7 +72,7 @@ def query(q):
 
 
 # Make queries to get information of the API
-def article(articleType, cursor, articleId):
+def article(articleType, articleTable, articleId):
     if articleType == 'R':
         url = f'{apiDomain}/recipes/{articleId}/information?apiKey={apiKey}'
     elif articleType == 'P':
@@ -72,29 +81,51 @@ def article(articleType, cursor, articleId):
         url = f'{apiDomain}/food/menuItems/{articleId}?apiKey={apiKey}'
 
     response = requests.get(url).json()
+    print(response)
     logIn = session.get("user_id")
-    savedArticle = cursor.execute(
-        f"SELECT articleType FROM savedArticles WHERE articleId = '{articleId}' AND userId = '{logIn}'")
-    savedArticle = cursor.fetchall()
+    savedArticle = articleTable.find({
+        "articleId": articleId,
+        "userId": logIn
+    }, { "_id": 0, "articleType": 1 })
+    # savedArticle = cursor.execute(
+    #     f"SELECT articleType FROM savedArticles WHERE articleId = '{articleId}' AND userId = '{logIn}'")
+    # savedArticle = cursor.fetchall()      
     getArticle = [response, savedArticle, articleId]
     return getArticle
 
 
-def saveArticle(cursor, username, articleType, connection):
+def saveArticle(username, articleType, connection):
     if session.get("user_id"):
         articleId = request.args.get('articleId')
         savedArticle = request.form.get('savedArticle')
         logIn = session.get("user_id")
-        if savedArticle == 'True':
-            cursor.execute(
-                f"DELETE FROM savedArticles WHERE userId = '{logIn}' AND articleId = '{articleId}'")
-            connection.commit()
-        else:
-            cursor.execute(
-                f"INSERT INTO savedArticles (userId, articleType, articleId) VALUES ('{logIn}', '{articleType}', '{articleId}')")
-            connection.commit()
+        db = connection["wikifood"]
+        savedArticlesTable = db["savedArticles"]
 
-        getArticle = article(articleType, cursor, articleId)
+        if savedArticle == 'True':
+            articleToDelete = {
+                "userId": logIn,
+                "articleId": articleId
+            }
+            savedArticlesTable.delete_one(articleToDelete)
+
+            # table.execute(
+            #     f"DELETE FROM savedArticles WHERE userId = '{logIn}' AND articleId = '{articleId}'")
+            # db.commit()
+        else:
+            articleToInsert = {
+                "userId": logIn,
+                "articleType": articleType,
+                "articleId": articleId
+            }
+            savedArticlesTable.insert_one(articleToInsert)
+
+            # table.execute(
+            #     f"INSERT INTO savedArticles (userId, articleType, articleId) VALUES ('{logIn}', '{articleType}', '{articleId}')")
+            # db.commit()
+
+        articleTypeCol = savedArticlesTable["articleType"]
+        getArticle = article(articleType, articleTypeCol, articleId)
         connection.close()
         return render_template("article.html", getArticle=getArticle, articleType=articleType, logIn=logIn, username=username)
 
@@ -126,7 +157,7 @@ def cropImage(image):
 
 
 # Saves images (banner and profile pictures), keeps a record of the images of each image of each user, and updates the uploaded images
-def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
+def uploadImage(profilePic, bannerPic, username, connection, logIn):
     config = {
         "apiKey": os.environ.get('FIREBASE_API_KEY'),
         "authDomain": os.environ.get('AUTH_DOMAIN'),
@@ -154,6 +185,9 @@ def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
     storage = firebase.storage()
     profilePicDir = 'static/temp/profilePictures/'
     bannerPicDir = 'static/temp/bannerPictures/'
+
+    db = connection["wikifood"]
+    usersTable = db["users"]
 
     if profilePic and bannerPic:
         if allowedImage(profilePic.filename) and allowedImage(bannerPic.filename):
@@ -183,16 +217,21 @@ def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
             storage.child(bannFilenameWebp).put(
                 bannerPicDir + bannFilenameWebp)
 
-            cursor.execute(
-                f"UPDATE users SET profilePicDir = '{profFilenameWebp}', bannerPicDir = '{bannFilenameWebp}' WHERE username = '{username}'")
-            connection.commit()
+            updatedValue = {
+                "profilePicDir": profFilenameWebp,
+                "bannerPicDir": bannFilenameWebp
+            }
+            usersTable.update_one({ "username": username }, updatedValue)
+            # cursor.execute(
+            #     f"UPDATE users SET profilePicDir = '{profFilenameWebp}', bannerPicDir = '{bannFilenameWebp}' WHERE username = '{username}'")
+            # db.commit()
 
             os.remove(profilePicDir + profFilename)
             os.remove(profilePicDir + profFilenameWebp)
             os.remove(bannerPicDir + bannFilename)
             os.remove(bannerPicDir + bannFilenameWebp)
 
-            picDirectory, articles = getProfInfo(cursor, logIn)
+            picDirectory, articles = getProfInfo(db, logIn)
             connection.close()
             successfulMessage = 'The images have been uploaded successfully. You\'ll see the changes in a few minutes.'
 
@@ -220,11 +259,13 @@ def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
             storage.child(profFilenameWebp).put(
                 profilePicDir + profFilenameWebp)
 
-            cursor.execute(
-                f"UPDATE users SET profilePicDir = '{profFilenameWebp}' WHERE username = '{username}'")
-            connection.commit()
-            picDirectory, articles = getProfInfo(cursor, logIn)
-            connection.close()
+            usersTable.update_one({ "username": username }, { "profilePicDir": profFilenameWebp })
+
+            # cursor.execute(
+            #     f"UPDATE users SET profilePicDir = '{profFilenameWebp}' WHERE username = '{username}'")
+            # db.commit()
+            picDirectory, articles = getProfInfo(db, logIn)
+            db.close()
             successfulMessage = 'The image has been uploaded successfully. You\'ll see the changes in a few minutes.'
 
             return render_template("profile.html", successfulMessage=successfulMessage, picDirectory=picDirectory,
@@ -248,10 +289,11 @@ def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
             storage.child(bannFilenameWebp).put(
                 bannerPicDir + bannFilenameWebp)
 
-            cursor.execute(
-                f"UPDATE users SET bannerPicDir = '{bannFilenameWebp}' WHERE username = '{username}'")
-            connection.commit()
-            picDirectory, articles = getProfInfo(cursor, logIn)
+            usersTable.update_one({ "username": username }, { "bannerPicDir": bannFilenameWebp })
+            # cursor.execute(
+            #     f"UPDATE users SET bannerPicDir = '{bannFilenameWebp}' WHERE username = '{username}'")
+            # db.commit()
+            picDirectory, articles = getProfInfo(db, logIn)
             connection.close()
             successfulMessage = 'The image has been uploaded successfully. You\'ll see the changes in a few minutes.'
 
@@ -263,29 +305,34 @@ def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
             return render_template("profile.html", errorMessage=errorMessage, logIn=session.get("user_id"), username=username)
 
 
-def getUsername(cursor):
+def getUsername(usersTable):
     logIn = session.get("user_id")
     if logIn:
-        username = cursor.execute(
-            f"SELECT username FROM users WHERE id = '{logIn}'")
-        username = cursor.fetchone()[0]
+        username = ''
+        usernameList = usersTable.find({ "_id": logIn })
+        for user in usernameList:
+            username = user
     else:
         username = None
 
     return username
 
 
-def getProfInfo(cursor, logIn):
+def getProfInfo(db, logIn):
     # Make another separately query to get the saved articles information
-    picDirectory = cursor.execute(
-        f"SELECT profilePicDir, bannerPicDir FROM users WHERE id = '{logIn}'")
-    picDirectory = cursor.fetchall()
-    savedArticles = cursor.execute(
-        f"SELECT articleType, articleId FROM savedArticles WHERE userId = '{logIn}'")
-    savedArticles = cursor.fetchall()
+    logIn = ObjectId(logIn)
+    picDirectory = db["users"].find({ "_id": logIn }, { "profilePicDir": 1, "bannerPicDir": 1, "_id": 0 })
+    savedArticles = db["savedArticles"].find({ "userId": logIn }, { "articleType": 1, "articleId": 1, "_id": 0 })
+
+    # picDirectory = cursor.execute(
+    #     f"SELECT profilePicDir, bannerPicDir FROM users WHERE _id = '{logIn}'")
+    # picDirectory = cursor.fetchall()
+    # savedArticles = cursor.execute(
+    #     f"SELECT articleType, articleId FROM savedArticles WHERE userId = '{logIn}'")
+    # savedArticles = cursor.fetchall()
 
     articles = []
     for i in savedArticles:
-        articles.append(article(i[0], cursor, i[1]))
+        articles.append(article(i[0], db["savedArticles"], i[1]))
 
     return picDirectory, articles

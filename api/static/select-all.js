@@ -1,4 +1,5 @@
-const selectAll = document.querySelector('.th-checkbox');
+const selectAll = document.querySelector('.saved-articles__btn--delete');
+const btnDeleteIcon = document.querySelector('.saved-articles__btn--delete-icon')
 const checkboxes = Array.from(document.querySelectorAll('.td-checkbox'));
 const articleImages = Array.from(document.querySelectorAll('.article-img'));
 const trs = Array.from(document.querySelectorAll('tr'));
@@ -16,12 +17,14 @@ for (i; i < articleImages.length; i++) {
 
 selectAll.addEventListener('click', function() {
     if (selectAll.checked) {
-        $('.delete-icon').css('opacity', '1');
+        btnDeleteIcon.style.opacity = '1';
+        // $('.delete-icon').css('opacity', '1');
         checkboxes.forEach(checkbox => {
             checkbox.checked = true;
         });
     } else {
-        $('.delete-icon').css('opacity', '0.6');
+        btnDeleteIcon.style.opacity = '0.6';
+        // $('.delete-icon').css('opacity', '0.6');
         checkboxes.forEach(checkbox => {
             checkbox.checked = false;
         });

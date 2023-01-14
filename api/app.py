@@ -1,23 +1,15 @@
-import mysql.connector.pooling
+import pymongo
 import os
+
 from re import fullmatch
 from helpers import login_required, userOrEmail, query, article, saveArticle, searchPost, uploadImage, getUsername, getProfInfo
 from flask import Flask, redirect, render_template, request, session
 from werkzeug.security import generate_password_hash
+from dotenv import load_dotenv, find_dotenv
 
-pool = mysql.connector.pooling.MySQLConnectionPool(
-    pool_name=os.environ.get('POOL_NAME'),
-    pool_reset_session=True,
-    pool_size=4,
-    host=os.environ.get('HOST'),
-    port=os.environ.get('PORT'),
-    user=os.environ.get('USER'),
-    password=os.environ.get('PASSWORD'),
-    db=os.environ.get('DB')
-)
-
+load_dotenv(find_dotenv())
 app = Flask(__name__)
-app.secret_key=os.environ.get('secretKey')
+app.secret_key=os.environ.get('SECRET_KEY')
 
 # Ensure templates are auto-reloaded
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -44,9 +36,10 @@ def index():
     if request.method == "POST":
         return searchPost()
 
-    connection = pool.get_connection()
-    cursor = connection.cursor()
-    username=getUsername(cursor)
+    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+    db = connection["wikifood"]
+    usersTable = db["users"]
+    username = getUsername(usersTable)
     connection.close()
 
     return render_template("index.html", index=True, logIn=session.get("user_id"), username=username)
@@ -54,14 +47,15 @@ def index():
 
 @app.route("/search", methods=["GET", "POST"])
 def search():
-    connection = pool.get_connection()
-    cursor = connection.cursor()
-
-    username = getUsername(cursor)
-    connection.close()
     if request.method == "POST":
         return searchPost()
 
+    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+    db = connection["wikifood"]
+    usersTable = db["users"]
+    username = getUsername(usersTable)
+    connection.close()
+    
     q = request.args.get('q')
     response = query(q)
     return render_template("search.html", response=response, logIn=session.get("user_id"), username=username)
@@ -69,55 +63,64 @@ def search():
 
 @app.route("/recipes", methods=["GET", "POST"])
 def recipes():
-    connection = pool.get_connection()
-    cursor = connection.cursor()
-    username = getUsername(cursor)
+    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+    db = connection["wikifood"]
+    usersTable = db["users"]
+    username = getUsername(usersTable)
 
     if request.method == "POST":
         search = request.form.get('search')
         if search:
             return searchPost()
 
-        return saveArticle(cursor, username, 'R', connection)
+        return saveArticle(username, 'R', connection)
 
     articleId = request.args.get('articleId')
-    getArticle = article('R', cursor, articleId)
+    articleTable = db["savedArticles"]
+    getArticle = article('R', articleTable, articleId)
+    print(getArticle)
     connection.close()
     return render_template("article.html", getArticle=getArticle, articleType='R', logIn=session.get("user_id"), username=username)
 
 
 @app.route("/products", methods=["GET", "POST"])
 def products():
-    connection = pool.get_connection()
-    cursor = connection.cursor()
-    username = getUsername(cursor)
+    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+    db = connection["wikifood"]
+    usersTable = db["users"]
+    username = getUsername(usersTable)
+
     if request.method == "POST":
         search = request.form.get('search')
         if search:
             return searchPost()
 
-        return saveArticle(cursor, username, 'P', connection)
+        return saveArticle(username, 'P', connection)
 
+    articleTable = db["savedArticles"]
     articleId = request.args.get('articleId')
-    getArticle = article('P', cursor, articleId)
+    getArticle = article('P', articleTable, articleId)
     connection.close()
     return render_template("article.html", getArticle=getArticle, articleType='P', logIn=session.get("user_id"), username=username)
 
 
 @app.route("/menu-items", methods=["GET", "POST"])
 def menuItems():
-    connection = pool.get_connection()
-    cursor = connection.cursor()
-    username = getUsername(cursor)
+    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+    db = connection["wikifood"]
+    usersTable = db["users"]
+    username = getUsername(usersTable)
+
     if request.method == "POST":
         search = request.form.get('search')
         if search:
             return searchPost()
 
-        return saveArticle(cursor, username, 'M', connection)
+        return saveArticle(username, 'M', connection)
 
     articleId = request.args.get('articleId')
-    getArticle = article('M', cursor, articleId)
+    articleTable = db["savedArticles"]
+    getArticle = article('M', articleTable, articleId)
     connection.close()
     return render_template("article.html", getArticle=getArticle, articleType='M', logIn=session.get("user_id"), username=username)
 
@@ -175,29 +178,38 @@ def register():
 
         # Check both if username and/or password already exists. If not, then the account is created
         else:
-            connection = pool.get_connection()
-            cursor = connection.cursor()
+            connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+            db = connection["wikifood"]
+            usersTable = db["users"]
+            exists = usersTable.find({ "username": username }, { "username": 1, "_id": 0 })
 
-            exists = cursor.execute(f"SELECT username FROM users WHERE username = '{username}'")
-            exists = cursor.fetchone()
-            if exists:
+            # exists = cursor.execute(f"SELECT username FROM users WHERE username = '{username}'")
+            # exists = cursor.fetchone()
+            if len(list(exists)) == 1:
                 errorMessage = 'The username is already taken. Please, try again.'
                 return render_template("register.html", errorMessage=errorMessage)
 
-            exists = cursor.execute(f"SELECT email FROM users WHERE email = '{email}'")
-            exists = cursor.fetchone()
-            if exists:
+            exists = usersTable.find( { "email": email }, { "email": 1, "_id": 0 })
+            if len(list(exists)) == 1:
                 errorMessage = 'The email is already in use. Please, try again, or '
                 return render_template("register.html", errorMessage=errorMessage, emailExists=True)
 
             hashedPassword = generate_password_hash(password, method='pbkdf2:sha256', salt_length=8)
 
-            cursor.execute(f"INSERT INTO users (username, email, hash) VALUES ('{username}', '{email}', '{hashedPassword}')")
-            connection.commit()
-            userId = cursor.execute(f"SELECT id FROM users WHERE username = '{username}'")
-            userId = cursor.fetchone()
+            userToInsert = {
+                "username": username,
+                "email": email,
+                "hash": hashedPassword
+            }
+
+            usersTable.insert_one(userToInsert)
+            userId = usersTable.find({ "username": username }, { "_id": 1 })
+
+            # cursor.execute(f"INSERT INTO users (username, email, hash) VALUES ('{username}', '{email}', '{hashedPassword}')")
+            # userId = cursor.execute(f"SELECT _id FROM users WHERE username = '{username}'")
+            # userId = cursor.fetchone()
+            session["user_id"] = str(userId[0]["_id"])
             connection.close()
-            session["user_id"] = userId[0]
 
             return redirect("/")
 
@@ -228,18 +240,14 @@ def login():
             elif not fullmatch(emailRegEx, user):
                 return render_template("login.html", error=True)
 
-            connection = pool.get_connection()
-            cursor = connection.cursor()
-
-            return userOrEmail(True, user, password, passRegEx, session, cursor, connection)
+            connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+            return userOrEmail(True, user, password, passRegEx, session, connection)
 
         elif not fullmatch(userRegEx, user):
             return render_template("login.html", error=True)
 
-        connection = pool.get_connection()
-        cursor = connection.cursor()
-
-        return userOrEmail(False, user, password, passRegEx, session, cursor, connection)
+        connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+        return userOrEmail(False, user, password, passRegEx, session, connection)
 
     return render_template("login.html")
 
@@ -258,11 +266,12 @@ def logout():
 @app.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
-    connection = pool.get_connection()
-    cursor = connection.cursor()
-
-    username = getUsername(cursor)
+    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
+    db = connection["wikifood"]
+    usersTable = db["users"]
+    username = getUsername(usersTable)
     logIn = session.get("user_id")
+
     if request.method == "POST":
         search = request.form.get("search")
         if search:
@@ -271,8 +280,7 @@ def profile():
         profilePic = request.files['profilePic']
         bannerPic = request.files['bannerPic']
         if profilePic or bannerPic:
-            return uploadImage(cursor, profilePic, bannerPic, username, connection, logIn)
+            return uploadImage(profilePic, bannerPic, username, connection, logIn)
 
-    picDirectory, articles = getProfInfo(cursor, logIn)
-    connection.close()
+    picDirectory, articles = getProfInfo(db, logIn)
     return render_template("profile.html", picDirectory=picDirectory, username=username, logIn=logIn, articles=articles)
