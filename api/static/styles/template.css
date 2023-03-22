@@ -72,7 +72,6 @@
 .profile {
     width: 2.8rem;
     height: 2.8rem;
-    margin-right: 3.2rem;
 }
 
 @media (max-width: 1024px) and (orientation: landscape) and (min-aspect-ratio: 13/9) {

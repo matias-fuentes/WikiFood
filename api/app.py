@@ -1,26 +1,35 @@
-import pymongo
-import os
-
+from os import environ
 from re import fullmatch
-from helpers import login_required, userOrEmail, query, article, saveArticle, searchPost, uploadImage, getUsername, getProfInfo
-from flask import Flask, redirect, render_template, request, session
-from werkzeug.security import generate_password_hash
+from bson import ObjectId
+from pymongo import MongoClient
+from operator import itemgetter
 from dotenv import load_dotenv, find_dotenv
+from werkzeug.security import generate_password_hash
+from flask import Flask, redirect, render_template, request, session
+from helpers import (
+    login_required,
+    isValidLogin,
+    query,
+    getArticle,
+    saveArticle,
+    searchPost,
+    uploadImage,
+    getDBTable,
+    getArticleId,
+    getProfileInfo,
+    destructureProfileImgs,
+)
 
 load_dotenv(find_dotenv())
 app = Flask(__name__)
-app.secret_key=os.environ.get('SECRET_KEY')
+app.secret_key = environ.get("SECRET_KEY")
 
 # Ensure templates are auto-reloaded
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # Configure upload settings
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
-# RegExs to validate inputs
-userRegEx = '[A-Za-z0-9._-]{3,16}'
-emailRegEx = '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}'
-passRegEx = '[A-Za-z0-9¡!¿?$+._-]{6,16}'
 
 # Ensure responses aren't cached
 @app.after_request
@@ -36,251 +45,232 @@ def index():
     if request.method == "POST":
         return searchPost()
 
-    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-    db = connection["wikifood"]
-    usersTable = db["users"]
-    username = getUsername(usersTable)
-    connection.close()
-
-    return render_template("index.html", index=True, logIn=session.get("user_id"), username=username)
+    return render_template("index.html", index=True, logIn=session.get("user_id"))
 
 
-@app.route("/search", methods=["GET", "POST"])
-def search():
+@app.route("/articles", methods=["GET", "POST"])
+def searchArticles():
     if request.method == "POST":
         return searchPost()
 
-    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-    db = connection["wikifood"]
-    usersTable = db["users"]
-    username = getUsername(usersTable)
-    connection.close()
-    
-    q = request.args.get('q')
-    response = query(q)
-    return render_template("search.html", response=response, logIn=session.get("user_id"), username=username)
+    # Handle empty state if there is no query param on the URL
+    search = request.args.get("q")
+
+    if not search:
+        return render_template("search.html", emptyState=True)
+
+    response = query(search)
+    return render_template("search.html", response=response)
 
 
-@app.route("/recipes", methods=["GET", "POST"])
-def recipes():
-    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-    db = connection["wikifood"]
-    usersTable = db["users"]
-    username = getUsername(usersTable)
+@app.route("/articles/<articleURL>", methods=["GET", "POST"])
+def articleId(articleURL):
+    # Connect to MongoDB and retrieve the username
+    connection = MongoClient(environ.get("MONGODB_URI"))
+    savedArticlesTable = getDBTable(connection, "savedArticles")
 
+    articleId = getArticleId(articleURL)
+    article = getArticle(savedArticlesTable, articleId)
+
+    # Handle POST method if the user search someting on the search bar
     if request.method == "POST":
-        search = request.form.get('search')
+        search = request.form.get("search")
+
         if search:
             return searchPost()
 
-        return saveArticle(username, 'R', connection)
+        logIn = session.get("user_id")
 
-    articleId = request.args.get('articleId')
-    articleTable = db["savedArticles"]
-    getArticle = article('R', articleTable, articleId)
-    print(getArticle)
+        if logIn:
+            saveArticle(savedArticlesTable, articleId, logIn)
+        else:
+            return redirect("/login")
+
     connection.close()
-    return render_template("article.html", getArticle=getArticle, articleType='R', logIn=session.get("user_id"), username=username)
+    return render_template("article.html", article=article)
 
 
-@app.route("/products", methods=["GET", "POST"])
-def products():
-    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-    db = connection["wikifood"]
-    usersTable = db["users"]
-    username = getUsername(usersTable)
-
-    if request.method == "POST":
-        search = request.form.get('search')
-        if search:
-            return searchPost()
-
-        return saveArticle(username, 'P', connection)
-
-    articleTable = db["savedArticles"]
-    articleId = request.args.get('articleId')
-    getArticle = article('P', articleTable, articleId)
-    connection.close()
-    return render_template("article.html", getArticle=getArticle, articleType='P', logIn=session.get("user_id"), username=username)
+# RegExs to validate inputs
+userRegEx = "[A-Za-z0-9._-]{3,16}"
+emailRegEx = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}"
+passwordRegEx = "[A-Za-z0-9¡!¿?$+._-]{6,16}"
 
 
-@app.route("/menu-items", methods=["GET", "POST"])
-def menuItems():
-    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-    db = connection["wikifood"]
-    usersTable = db["users"]
-    username = getUsername(usersTable)
-
-    if request.method == "POST":
-        search = request.form.get('search')
-        if search:
-            return searchPost()
-
-        return saveArticle(username, 'M', connection)
-
-    articleId = request.args.get('articleId')
-    articleTable = db["savedArticles"]
-    getArticle = article('M', articleTable, articleId)
-    connection.close()
-    return render_template("article.html", getArticle=getArticle, articleType='M', logIn=session.get("user_id"), username=username)
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
     # Forget any user_id
     session.clear()
 
     if request.method == "POST":
         search = request.form.get("search")
+
         if search:
-            return redirect(f"/search?q={search}")
+            return redirect(f"/articles?q={search}")
 
         username = request.form.get("username")
         email = request.form.get("email").lower()
         password = request.form.get("password")
-        confirmPassword = request.form.get("confirm-password")
+        confirmedPassword = request.form.get("confirmed-password")
 
         # Check if username is valid or not
         if not fullmatch(userRegEx, username):
             if len(username) < 3 or len(username) > 16:
-                errorMessage = 'Username must be at least 3 characters, with a maximum of 16 characters.'
-                return render_template("register.html", errorMessage=errorMessage)
+                errorMessage = "Username must be at least 3 characters, with a maximum of 16 characters."
+                return render_template("signup.html", errorMessage=errorMessage)
 
-            errorMessage = 'Invalid username. Please, use valid special characters (underscore, minus, and periods).'
-            return render_template('register.html', errorMessage=errorMessage)
+            errorMessage = "Invalid username. Please, use valid special characters (underscore, minus, and periods)."
+            return render_template("signup.html", errorMessage=errorMessage)
 
         elif len(email) < 6 or len(email) > 64:
-            errorMessage = 'Email must be at least 6 characters, with a maximum of 64 characters.'
-            return render_template("register.html", errorMessage=errorMessage)
+            errorMessage = (
+                "Email must be at least 6 characters, with a maximum of 64 characters."
+            )
+            return render_template("signup.html", errorMessage=errorMessage)
 
         # Check if email is valid or not
         elif not fullmatch(emailRegEx, email):
-            errorMessage = 'Invalid email. Please, try again.'
-            return render_template("register.html", errorMessage=errorMessage)
+            errorMessage = "Invalid email. Please, try again."
+            return render_template("signup.html", errorMessage=errorMessage)
 
-        elif password != confirmPassword:
-            errorMessage = 'Password and confirmation does not match. Please, try again.'
-            return render_template("register.html", errorMessage=errorMessage)
+        elif password != confirmedPassword:
+            errorMessage = (
+                "Password and confirmation does not match. Please, try again."
+            )
+            return render_template("signup.html", errorMessage=errorMessage)
 
         # Check if password is valid or not
-        elif not fullmatch(passRegEx, password):
+        elif not fullmatch(passwordRegEx, password):
             if len(password) < 6 or len(password) > 16:
-                errorMessage = 'Password must be at least 6 characters, with a maximum of 16 characters.'
-                return render_template("register.html", errorMessage=errorMessage)
+                errorMessage = "Password must be at least 6 characters, with a maximum of 16 characters."
+                return render_template("signup.html", errorMessage=errorMessage)
 
-            errorMessage = 'Invalid password. Please, use valid special characters.'
-            return render_template("register.html", errorMessage=errorMessage)
+            errorMessage = "Invalid password. Please, use valid special characters."
+            return render_template("signup.html", errorMessage=errorMessage)
 
         # Check both if username or password have two or more consecutive periods
-        elif '..' in username or '..' in password:
-            errorMessage = 'Username and password cannot contain two or more consecutive periods (.).'
-            return render_template("register.html", errorMessage=errorMessage)
+        elif ".." in username or ".." in password:
+            errorMessage = "Username and password cannot contain two or more consecutive periods (.)."
+            return render_template("signup.html", errorMessage=errorMessage)
 
-        # Check both if username and/or password already exists. If not, then the account is created
+        # Check both if username and/or password already exists. If not, then the account
+        # is created
         else:
-            connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-            db = connection["wikifood"]
-            usersTable = db["users"]
-            exists = usersTable.find({ "username": username }, { "username": 1, "_id": 0 })
+            connection = MongoClient(environ.get("MONGODB_URI"))
+            usersTable = getDBTable(connection, "users")
 
-            # exists = cursor.execute(f"SELECT username FROM users WHERE username = '{username}'")
-            # exists = cursor.fetchone()
-            if len(list(exists)) == 1:
-                errorMessage = 'The username is already taken. Please, try again.'
-                return render_template("register.html", errorMessage=errorMessage)
+            errorMessage = "The username is already taken. Please, try again or "
+            exists = usersTable.find_one(
+                {"username": username}, {"username": 1, "_id": 0}
+            )
 
-            exists = usersTable.find( { "email": email }, { "email": 1, "_id": 0 })
-            if len(list(exists)) == 1:
-                errorMessage = 'The email is already in use. Please, try again, or '
-                return render_template("register.html", errorMessage=errorMessage, emailExists=True)
+            if exists:
+                return render_template("signup.html", errorMessage=errorMessage)
 
-            hashedPassword = generate_password_hash(password, method='pbkdf2:sha256', salt_length=8)
+            exists = usersTable.find_one({"email": email}, {"email": 1, "_id": 0})
 
+            if exists:
+                errorMessage = errorMessage.replace("username", "email")
+                return render_template("signup.html", errorMessage=errorMessage)
+
+            hashedPassword = generate_password_hash(
+                password, method="pbkdf2:sha256", salt_length=8
+            )
+
+            # If everything is correct and has passed all the conditions, then we create
+            # the user object that we want to insert on the database, and insert it
             userToInsert = {
                 "username": username,
                 "email": email,
-                "hash": hashedPassword
+                "hash": hashedPassword,
             }
-
             usersTable.insert_one(userToInsert)
-            userId = usersTable.find({ "username": username }, { "_id": 1 })
-
-            # cursor.execute(f"INSERT INTO users (username, email, hash) VALUES ('{username}', '{email}', '{hashedPassword}')")
-            # userId = cursor.execute(f"SELECT _id FROM users WHERE username = '{username}'")
-            # userId = cursor.fetchone()
-            session["user_id"] = str(userId[0]["_id"])
+            userId = usersTable.find_one({"username": username}, {"_id": 1})
+            userId = str(userId["_id"])
+            session["user_id"] = userId
             connection.close()
 
             return redirect("/")
 
-    return render_template("register.html")
+    return render_template("signup.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    # Forget any user_id
+    # Clear session cookies
     session.clear()
 
     if request.method == "POST":
         search = request.form.get("search")
+
         if search:
-            return redirect(f"/search?q={search}")
+            return redirect(f"/articles?q={search}")
 
-        user = request.form.get("user")
+        user = request.form.get("user").lower()
         password = request.form.get("password")
+        regExs = {
+            "username": userRegEx,
+            "email": emailRegEx,
+            "password": passwordRegEx,
+        }
 
-        # We can log in either with our username or with our email.
-        # If there's an '@' in user, that means that we're dealing with an email.
-        if '@' in user:
-            user = user.lower()
+        response = isValidLogin(user, password, regExs, session)
 
-            if len(user) < 6 or len(user) > 64:
-                return render_template("login.html", error=True)
+        if response["isValidLogin"] == False:
+            # This code from here modifies the error message depending whether the user
+            # has tried to log in with either his username or his email
+            errorMessage = (
+                "Your username and/or password are incorrect. Please, try again."
+            )
+            if response["usernameOrEmail"] == "email":
+                errorMessage = errorMessage.replace("username", "email")
 
-            elif not fullmatch(emailRegEx, user):
-                return render_template("login.html", error=True)
-
-            connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-            return userOrEmail(True, user, password, passRegEx, session, connection)
-
-        elif not fullmatch(userRegEx, user):
-            return render_template("login.html", error=True)
-
-        connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-        return userOrEmail(False, user, password, passRegEx, session, connection)
+            return render_template("login.html", errorMessage=errorMessage)
+        else:
+            return redirect("/")
 
     return render_template("login.html")
 
 
 @app.route("/logout")
 def logout():
-    """Log user out"""
-
-    # Forget any user_id
+    # Clear session cookies
     session.clear()
-
-    # Redirect user to login form
     return redirect("/")
 
 
 @app.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
-    connection = pymongo.MongoClient(os.environ.get('MONGODB_URI'))
-    db = connection["wikifood"]
-    usersTable = db["users"]
-    username = getUsername(usersTable)
+    connection = MongoClient(environ.get("MONGODB_URI"))
+    usersTable = getDBTable(connection, "users")
     logIn = session.get("user_id")
 
     if request.method == "POST":
         search = request.form.get("search")
-        if search:
-            return redirect(f"/search?q={search}")
 
-        profilePic = request.files['profilePic']
-        bannerPic = request.files['bannerPic']
+        if search:
+            return redirect(f"/articles?q={search}")
+
+        profilePic = request.files["profilePic"]
+        bannerPic = request.files["bannerPic"]
+
         if profilePic or bannerPic:
+            logIn = ObjectId(logIn)
+            username = usersTable.find_one({"_id": logIn}, {"username": 1, "_id": 0})[
+                "username"
+            ]
             return uploadImage(profilePic, bannerPic, username, connection, logIn)
 
-    picDirectory, articles = getProfInfo(db, logIn)
-    return render_template("profile.html", picDirectory=picDirectory, username=username, logIn=logIn, articles=articles)
+    profileInfo = getProfileInfo(connection, logIn)
+    connection.close()
+
+    profileImages = profileInfo["profileImages"]
+    savedArticles = profileInfo["savedArticles"]
+    profilePic, bannerPic = destructureProfileImgs(profileImages)
+
+    return render_template(
+        "profile.html",
+        profilePic=profilePic,
+        bannerPic=bannerPic,
+        savedArticles=savedArticles,
+    )

@@ -7,6 +7,12 @@
 .search-card {
     max-height: 55vh;
     padding: 0 3.2rem 3.2rem 3.2rem;
+    text-decoration: none !important;
+    background-color: rgb(240, 240, 240);
+}
+
+.search-card__title:hover {
+    text-decoration: underline;
 }
 
 @media (max-width: 1024px) and (orientation: landscape) and (min-aspect-ratio: 13/9) {
@@ -26,7 +32,7 @@
     .search-card:hover {
         transition: all .5s;
         width: 23%;
-        background-color: rgb(240, 240, 240);
+        background-color: rgb(225, 225, 225);
         cursor: pointer;
         overflow: hidden;
     }
