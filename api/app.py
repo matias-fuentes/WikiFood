@@ -1,11 +1,21 @@
+import json
+
 from os import environ
 from re import fullmatch
 from bson import ObjectId
 from pymongo import MongoClient
-from operator import itemgetter
+from typing import Union, Optional
 from dotenv import load_dotenv, find_dotenv
 from werkzeug.security import generate_password_hash
-from flask import Flask, redirect, render_template, request, session
+from werkzeug.wrappers import Response as RedirectResponse
+from flask import (
+    Flask,
+    redirect,
+    render_template,
+    request,
+    session,
+    Response as FlaskResponse,
+)
 from helpers import (
     login_required,
     isValidLogin,
@@ -14,14 +24,14 @@ from helpers import (
     saveArticle,
     searchPost,
     uploadImage,
-    getDBTable,
+    getDbTable,
     getArticleId,
     getProfileInfo,
     destructureProfileImgs,
 )
 
 load_dotenv(find_dotenv())
-app = Flask(__name__)
+app: Flask = Flask(__name__)
 app.secret_key = environ.get("SECRET_KEY")
 
 # Ensure templates are auto-reloaded
@@ -30,10 +40,13 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 # Configure upload settings
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
+# Type aliases
+SearchPostResponse = Union[RedirectResponse, None]
+
 
 # Ensure responses aren't cached
 @app.after_request
-def after_request(response):
+def after_request(response: FlaskResponse) -> FlaskResponse:
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Expires"] = 0
     response.headers["Pragma"] = "no-cache"
@@ -41,25 +54,25 @@ def after_request(response):
 
 
 @app.route("/", methods=["GET", "POST"])
-def index():
+def index() -> Union[SearchPostResponse, str]:
     if request.method == "POST":
         return searchPost()
 
-    return render_template("index.html", index=True, logIn=session.get("user_id"))
+    return render_template("index.html", index=True, loggedInId=session.get("user_id"))
 
 
 @app.route("/articles", methods=["GET", "POST"])
-def searchArticles():
+def searchArticles() -> Union[SearchPostResponse, str]:
     if request.method == "POST":
         return searchPost()
 
     # Handle empty state if there is no query param on the URL
-    search = request.args.get("q")
+    search: str | None = request.args.get("q")
 
     if not search:
         return render_template("search.html", emptyState=True)
 
-    response = query(search)
+    response: dict = query(search)
     return render_template("search.html", response=response)
 
 
@@ -67,7 +80,7 @@ def searchArticles():
 def articleId(articleURL):
     # Connect to MongoDB and retrieve the username
     connection = MongoClient(environ.get("MONGODB_URI"))
-    savedArticlesTable = getDBTable(connection, "savedArticles")
+    savedArticlesTable = getDbTable(connection, "savedArticles")
 
     articleId = getArticleId(articleURL)
     article = getArticle(savedArticlesTable, articleId)
@@ -79,10 +92,10 @@ def articleId(articleURL):
         if search:
             return searchPost()
 
-        logIn = session.get("user_id")
+        loggedInId = ObjectId(session.get("user_id"))
 
-        if logIn:
-            saveArticle(savedArticlesTable, articleId, logIn)
+        if loggedInId:
+            saveArticle(savedArticlesTable, articleId, loggedInId)
         else:
             return redirect("/login")
 
@@ -156,7 +169,7 @@ def signup():
         # is created
         else:
             connection = MongoClient(environ.get("MONGODB_URI"))
-            usersTable = getDBTable(connection, "users")
+            usersTable = getDbTable(connection, "users")
 
             errorMessage = "The username is already taken. Please, try again or "
             exists = usersTable.find_one(
@@ -184,9 +197,8 @@ def signup():
                 "hash": hashedPassword,
             }
             usersTable.insert_one(userToInsert)
-            userId = usersTable.find_one({"username": username}, {"_id": 1})
-            userId = str(userId["_id"])
-            session["user_id"] = userId
+            userId = usersTable.find_one({"username": username}, {"_id": 1})["_id"]
+            session["user_id"] = str(userId)
             connection.close()
 
             return redirect("/")
@@ -242,8 +254,8 @@ def logout():
 @login_required
 def profile():
     connection = MongoClient(environ.get("MONGODB_URI"))
-    usersTable = getDBTable(connection, "users")
-    logIn = session.get("user_id")
+    usersTable = getDbTable(connection, "users")
+    loggedInId = ObjectId(session.get("user_id"))
 
     if request.method == "POST":
         search = request.form.get("search")
@@ -255,13 +267,12 @@ def profile():
         bannerPic = request.files["bannerPic"]
 
         if profilePic or bannerPic:
-            logIn = ObjectId(logIn)
-            username = usersTable.find_one({"_id": logIn}, {"username": 1, "_id": 0})[
-                "username"
-            ]
-            return uploadImage(profilePic, bannerPic, username, connection, logIn)
+            username = usersTable.find_one(
+                {"_id": loggedInId}, {"username": 1, "_id": 0}
+            )["username"]
+            return uploadImage(profilePic, bannerPic, username, connection, loggedInId)
 
-    profileInfo = getProfileInfo(connection, logIn)
+    profileInfo = getProfileInfo(connection, loggedInId)
     connection.close()
 
     profileImages = profileInfo["profileImages"]

@@ -6,21 +6,25 @@ from re import fullmatch
 from bson import ObjectId
 from functools import wraps
 from webptools import cwebp
-from typing import TypedDict
 from pymongo import MongoClient
 from os import environ, path, remove
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv, find_dotenv
+from typing import TypedDict, Union, Optional
 from werkzeug.security import check_password_hash
+from werkzeug.wrappers import Response as RedirectResponse
 from flask import redirect, render_template, request, session
 
 load_dotenv(find_dotenv())
-apiKey: str = environ.get("API_KEY")
+apiKey: Optional[str] = environ.get("API_KEY")
 
 
-def searchPost():
+def searchPost() -> Union[RedirectResponse, None]:
     query: str | None = request.form.get("search")
-    return redirect(f"/articles?q={query}")
+    if query:
+        return redirect(f"/articles?q={query}")
+    else:
+        return None
 
 
 # Decorate routes to require login
@@ -34,14 +38,14 @@ def login_required(f):
     return decorated_function
 
 
-def getDBTable(connection, table: str):
+def getDbTable(connection, table: str):
     db = connection["wikifood"]
     table = db[table]
     return table
 
 
-def getUsername(usersTable, logIn):
-    username = usersTable.find_one({"_id": logIn}, {"username": 1, "_id": 0})[
+def getUsername(usersTable, loggedInId):
+    username = usersTable.find_one({"_id": loggedInId}, {"username": 1, "_id": 0})[
         "username"
     ]
 
@@ -71,7 +75,7 @@ def isValidLogin(user, password, regExs, session):
         # valid, we first consult with the database to find out whether the user exists
         # or not
         connection = MongoClient(environ.get("MONGODB_URI"))
-        usersTable = getDBTable(connection, "users")
+        usersTable = getDbTable(connection, "users")
         userExists = usersTable.find_one({f"{usernameOrEmail}": user}, {"hash": 1})
 
         # If it exists, we compare the password that the user provided with the hashed
@@ -84,8 +88,7 @@ def isValidLogin(user, password, regExs, session):
             # that we have stored in the database, then we log in the user, and return a
             # valid response
             if isValidPassword:
-                userId: str = str(userExists["_id"])
-                session["user_id"] = userId
+                session["user_id"] = str(userExists["_id"])
                 connection.close()
 
                 response = {"isValidLogin": True}
@@ -100,13 +103,13 @@ def isValidLogin(user, password, regExs, session):
         return invalidResponse
 
 
-apiDomain = "https://api.spoonacular.com"
+apiDomain: str = "https://api.spoonacular.com"
 
 
 # Make queries to search at the API
-def query(search: str):
-    url = f"{apiDomain}/recipes/complexSearch?apiKey={apiKey}&query={search}&number=25&addRecipeInformation=true"
-    response = requests.get(url).json()
+def query(search: str) -> dict:
+    url: str = f"{apiDomain}/recipes/complexSearch?apiKey={apiKey}&query={search}&number=25&addRecipeInformation=true"
+    response: dict = requests.get(url).json()
 
     return response
 
@@ -114,33 +117,29 @@ def query(search: str):
 # Make queries to get information of the API
 def getArticle(savedArticlesTable, articleId):
     url = f"{apiDomain}/recipes/{articleId}/information?apiKey={apiKey}"
-    response = requests.get(url).json()
-    logIn = session.get("user_id")
+    article = requests.get(url).json()
+    loggedInId = ObjectId(session.get("user_id"))
 
-    savedArticle = savedArticlesTable.find(
-        {"articleId": articleId, "userId": logIn}, {"_id": 0, "articleType": 1}
-    )
-    getArticle = [response, savedArticle, articleId]
-    return getArticle
+    if loggedInId:
+        savedArticle: dict = savedArticlesTable.find_one(
+            {"articleId": articleId, "userId": loggedInId}, {"_id": 1}
+        )
+
+        if savedArticle:
+            article["isSaved"]: bool = True
+
+    print(article)
+    return article
 
 
-def saveArticle(savedArticlesTable, articleId, logIn):
-    savedArticle = request.form.get("savedArticle")
+def saveArticle(savedArticlesTable, articleId, loggedInId):
+    isSaved = request.form.get("savedArticle")
+    article = {"userId": loggedInId, "articleId": articleId}
 
-    if savedArticle == "True":
-        articleToDelete = {"userId": logIn, "articleId": articleId}
-        savedArticlesTable.delete_one(articleToDelete)
-
-        # table.execute(
-        #     f"DELETE FROM savedArticles WHERE userId = '{logIn}' AND articleId = '{articleId}'")
-        # db.commit()
+    if isSaved == "True":
+        savedArticlesTable.delete_one(article)
     else:
-        articleToInsert = {"userId": logIn, "articleId": articleId}
-        savedArticlesTable.insert_one(articleToInsert)
-
-        # table.execute(
-        #     f"INSERT INTO savedArticles (userId, articleType, articleId) VALUES ('{logIn}', '{articleType}', '{articleId}')")
-        # db.commit()
+        savedArticlesTable.insert_one(article)
 
 
 # Check if an image has a valid format
@@ -165,16 +164,15 @@ def cropImage(image):
     return image
 
 
-def getProfileInfo(connection, logIn):
-    usersTable = getDBTable(connection, "users")
-    savedArticlesTable = getDBTable(connection, "savedArticles")
-    logIn = ObjectId(logIn)
+def getProfileInfo(connection, loggedInId):
+    usersTable = getDbTable(connection, "users")
+    savedArticlesTable = getDbTable(connection, "savedArticles")
 
     profileImages = usersTable.find_one(
-        {"_id": logIn}, {"profilePic": 1, "bannerPic": 1, "_id": 0}
+        {"_id": loggedInId}, {"profilePic": 1, "bannerPic": 1, "_id": 0}
     )
     savedArticles = list(
-        savedArticlesTable.find({"userId": logIn}, {"articleId": 1, "_id": 0})
+        savedArticlesTable.find({"userId": loggedInId}, {"articleId": 1, "_id": 0})
     )
 
     profileInfo = {"profileImages": profileImages, "savedArticles": savedArticles}
@@ -199,7 +197,7 @@ def destructureProfileImgs(profileImages: ProfileImages) -> tuple[str, str]:
 
 # Saves images (banner and profile pictures), keeps a record of the images of each image of each user,
 # and updates the uploaded images
-def uploadImage(profilePic, bannerPic, username, connection, logIn):
+def uploadImage(profilePic, bannerPic, username, connection, loggedInId):
     config = {
         "apiKey": environ.get("FIREBASE_API_KEY"),
         "authDomain": environ.get("AUTH_DOMAIN"),
@@ -227,7 +225,7 @@ def uploadImage(profilePic, bannerPic, username, connection, logIn):
     storage = firebase.storage()
     profilePicDirectory = "static/temp/profilePics/"
     bannerPicDirectory = "static/temp/bannerPics/"
-    usersTable = getDBTable(connection, "users")
+    usersTable = getDbTable(connection, "users")
 
     successfulMessage = "The image has been uploaded successfully!"
     errorMessage = "Allowed image types are: png, jpg, jpeg, webp, and bmp."
@@ -277,7 +275,7 @@ def uploadImage(profilePic, bannerPic, username, connection, logIn):
             remove(bannerPicDirectory + bannFilename)
             remove(bannerPicDirectory + bannFilenameWebp)
 
-            profileInfo = getProfileInfo(connection, logIn)
+            profileInfo = getProfileInfo(connection, loggedInId)
             connection.close()
 
             savedArticles = profileInfo["savedArticles"]
@@ -329,7 +327,7 @@ def uploadImage(profilePic, bannerPic, username, connection, logIn):
             remove(profilePicDirectory + profFilename)
             remove(profilePicDirectory + profFilenameWebp)
 
-            profileInfo = getProfileInfo(connection, logIn)
+            profileInfo = getProfileInfo(connection, loggedInId)
             connection.close()
 
             savedArticles = profileInfo["savedArticles"]
@@ -376,7 +374,7 @@ def uploadImage(profilePic, bannerPic, username, connection, logIn):
             remove(bannerPicDirectory + bannFilename)
             remove(bannerPicDirectory + bannFilenameWebp)
 
-            profileInfo = getProfileInfo(connection, logIn)
+            profileInfo = getProfileInfo(connection, loggedInId)
             connection.close()
 
             savedArticles = profileInfo["savedArticles"]
@@ -411,4 +409,5 @@ def getArticleId(articleURL):
             break
 
     articleId = articleURL[startPoint:]
+    articleId = int(articleId)
     return articleId
