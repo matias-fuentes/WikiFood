@@ -1,6 +1,5 @@
 from os import environ
 from re import fullmatch
-from bson import ObjectId
 from pymongo import MongoClient
 from typing import Union
 from dotenv import load_dotenv, find_dotenv
