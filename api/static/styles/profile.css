@@ -5,6 +5,7 @@
     display: flex;
     justify-content: flex-end;
     align-items: flex-end;
+    margin-bottom: 6.4rem;
 }
 
 .profile-pic-container {
@@ -85,82 +86,65 @@
     display: none;
 }
 
-.profile-form > * {
-    margin-bottom: 6rem;
-}
-
-.username {
-    text-align: center;
-}
-
-.btn-container {
-    margin-bottom: 1.6rem;
-    position: relative;
-}
-
-.th-checkbox {
-    display: flex !important;
-}
-
 .selected {
     background-color: rgba(128, 128, 128, 0.5) !important;
 }
 
-.edge-td-container > input {
-    display: none;
+.banner__username {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 4.8rem;
 }
 
-.edge-td-container > a {
-    width: 12.8rem;
+.saved-articles__header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 1.6rem;
+    position: relative;
 }
 
-.td-title {
-    width: 32.1rem;
+.saved-articles__deleteBtn {
+    position: absolute;
+    background-color: rgb(218, 82, 83);
+    padding: 0.6rem 1.2rem;
+    opacity: 0.6;
+    margin-left: 1.8rem;
+    left: 0;
+    cursor: not-allowed !important;
 }
 
-.article-title {
-    color: rgb(0, 123, 255);
-    padding: 0rem 1.6rem;
+.saved-articles__deleteBtn--selected {
+    cursor: pointer !important;
+    opacity: 1;
 }
 
-.article-type {
+.mrg-16 {
+    margin-bottom: 3.2rem;
+}
+
+.no-mrg {
     margin: 0;
 }
 
-.article-img {
-    width: 6.4rem;
-    height: 6.4rem;
-    border-radius: 50%;
-    object-fit: cover;
+.saved-articles__selectAll {
+    width: 8.8rem;
 }
 
-.delete-container {
-    margin-left: 0.2rem;
-    width: 6.4rem;
+.saved-articles__bigContainer {
+    width: 67rem;
 }
 
-.btn-delete {
-    background-color: rgb(218, 82, 83);
-    border: 1px solid;
-    padding: 0.48rem 0.96rem;
-    width: 6.4rem;
+#select-all, .saved-articles__checkbox {
+    width: 2rem;
+    height: 2rem;
+    margin: 0.4rem 0.8rem;
+    cursor: pointer;
 }
 
-.delete-icon {
-    opacity: 0.75;
-}
-
-.option {
-    position: absolute;
-    width: 19.2rem;
-    right: calc(50% - 9.6rem);
-    top: 0%;
-    height: 100%;
-    display: flex;
-}
-
-.option > h1 {
-    margin: auto;
+.saved-articles__image {
+    width: 10rem;
 }
 
 .save-flx-end {
@@ -168,9 +152,14 @@
     justify-content: flex-end;
 }
 
+.saved-articles__type-col {
+    display: none;
+}
+
 @media (min-width: 1024px) and (min-aspect-ratio: 13/9) {
     .banner {
         height: 25.6rem;
+        margin-bottom: 8rem;
     }
 
     .profile-pic-container {
@@ -227,55 +216,17 @@
         display: block;
     }
 
-    .profile-form > * {
-        margin-bottom: 8rem;
+    .saved-articles__type-col {
+        display: table-cell;
     }
 
-    .delete-container {
-        margin-left: 6.25%;
-        width: 5.4rem;
+    #select-all, .saved-articles__checkbox {
+        width: 4rem;
+        height: 4rem;
+        margin: 1.2rem 2.4rem;
     }
 
-    .th-title {
-        width: 12.8rem;
-    }
-
-    .th-checkbox {
-        width: 2.6rem;
-    }
-
-    .checkbox {
-        cursor: pointer;
-        width: 9.6rem;
-        margin-right: 3.2rem;
-    }
-
-    .article-img {
-        width: 100%;
-        border-radius: 0%;
-        height: unset;
-    }
-
-    .edge-td-container {
-        padding: 0 3.2rem;
-        display: flex !important;
-        justify-content: center;
-        align-items: center;
-        height: 10.17rem;
-    }
-
-    .edge-td-container > input {
-        width: 7.5%;
-        display: flex;
-    }
-
-    .td-title {
-        width: 89.45rem;
-    }
-
-    .btn-container {
-        display: flex;
-        justify-content: left;
-        margin-bottom: 1.6rem;
+    .saved-articles__image {
+        width: 20rem;
     }
 }

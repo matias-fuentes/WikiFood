@@ -1,3 +1,7 @@
+.header__btn-container {
+    display: none;
+}
+
 .low-width {
     width: 7.2rem;
     padding: 0.96rem;
@@ -65,6 +69,11 @@
     margin: 0.4rem 0rem 0rem 0rem;
 }
 
+.profile {
+    width: 2.8rem;
+    height: 2.8rem;
+}
+
 @media (max-width: 1024px) and (orientation: landscape) and (min-aspect-ratio: 13/9) {
     header {
         height: 6.4rem;
@@ -85,6 +94,16 @@
 }
 
 @media (min-width: 1024px) and (min-aspect-ratio: 13/9) {
+    .header__btn-container {
+        display: flex;
+        align-items: center;
+        gap: 3.2rem;
+    }
+
+    .logo-container {
+        width: 13.2rem;
+    }
+
     .search-bar-container {
         width: 48rem;
     }
@@ -107,8 +126,6 @@
     }
 
     .profile {
-        margin: 0;
-        width: auto;
         border-radius: 50%;
         color: black;
         flex-direction: row;

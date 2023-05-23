@@ -141,7 +141,6 @@ footer {
 
 a {
     text-decoration: none;
-    color: rgb(0, 123, 255);
 }
 
 a * {
@@ -224,12 +223,12 @@ td {
         margin-top: 0rem;
     }
 
-    .card > p {
-        font-size: 1.2rem;
+    .card > img {
+        max-height: 20vh;
     }
 
-    th > .edge-td-container {
-        height: 4.8rem;
+    .card > p {
+        font-size: 1.2rem;
     }
 
     td {
@@ -252,6 +251,6 @@ td {
     }
 
     .card > p {
-        font-size: 1.1rem;
+        font-size: 1.4rem;
     }
 }

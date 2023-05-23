@@ -1,19 +1,18 @@
 {% extends "template.html" %}
 
 {% block index %}
-
     <div class="web-presentation">
         <div class="introduction-container flex-vertical">
             <h1 class="marg-0">WikiFood</h1>
             <p>All about your favourite foods, in just one place</p>
-            {% if logIn %}
+            {% if loginId %}
                 <a href="/profile">
                     <img src="./static/svgs/index/profile-white.svg">
                 </a>
             {% else %}
                 <div class="join-container">
                     <a href="/login" class="btn">Log In</a>
-                    <a href="/register" class="btn btn-primary">Sign Up</a>
+                    <a href="/signup" class="btn btn-primary">Sign Up</a>
                 </div>
             {% endif %}
         </div>
@@ -158,5 +157,4 @@
             </table>
         </div>
     </div>
-
 {% endblock %}

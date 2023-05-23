@@ -1,291 +1,398 @@
-import requests
 import os
 import pyrebase
+import requests
 
-from webptools import cwebp
 from PIL import Image
 from re import fullmatch
-from flask import redirect, render_template, request, session
+from pathlib import Path
+from bson import ObjectId
 from functools import wraps
-from werkzeug.security import check_password_hash
+from pymongo import MongoClient
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv, find_dotenv
+from typing import TypedDict, Union, Optional
+from werkzeug.security import check_password_hash
+from werkzeug.wrappers import Response as RedirectResponse
+from flask import redirect, render_template, request, session
 
-apiKey = os.environ.get('API_KEY')
+load_dotenv(find_dotenv())
+spoonacularAPIKey: Optional[str] = os.environ.get("SPOONACULAR_API_KEY")
 
-# Makes it necessary to log in to enter to the specified page
+
+def searchPost() -> Union[RedirectResponse, None]:
+    query: str | None = request.form.get("search")
+    if query:
+        return redirect(f"/articles?q={query}")
+    else:
+        return None
+
+
+# Decorate routes to require login
 def login_required(f):
-    """
-    Decorate routes to require login.
-
-    https://flask.palletsprojects.com/en/1.1.x/patterns/viewdecorators/
-    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if session.get("user_id") is None:
+        if session.get("loginId") is None:
             return redirect("/login")
         return f(*args, **kwargs)
+
     return decorated_function
 
 
-# Recognizes if you're trying to log in with your username or your email, and ends up logging in if the credentials are valid
-def userOrEmail(email, user, password, passRegEx, session, cursor, connection):
-    condition = 'email' if email == True else 'username'
-    userDB = cursor.execute(
-        f"SELECT id, hash FROM users WHERE {condition} = '{user}'")
-    userDB = cursor.fetchall()
-    connection.close()
+def getLoginId(sessionLoginId):
+    loginId = None
+    if sessionLoginId:
+        loginId = ObjectId(sessionLoginId)
 
-    if userDB:
-        # Check if password is valid or not
-        if not fullmatch(passRegEx, password):
-            return render_template("login.html", error=True)
-
-        checkPassword = check_password_hash(userDB[0][1], password)
-        if checkPassword:
-            session["user_id"] = userDB[0][0]
-            return redirect("/")
-
-    return render_template("login.html", error=True)
+    return loginId
 
 
-apiDomain = 'https://api.spoonacular.com'
+def getDbTable(connection, table: str):
+    db = connection["wikifood"]
+    table = db[table]
+    return table
+
+
+def getUsername(usersTable, loginId):
+    username = usersTable.find_one({"_id": loginId}, {"username": 1, "_id": 0})[
+        "username"
+    ]
+
+    return username
+
+
+# Smartly recognizes whether the user has tried to log in with either his username or his
+# email, and validates the login
+def isValidLogin(user, password, regExs, session):
+    usernameOrEmail: str | None = None
+
+    # Before consulting anything, it first checks whether the username or email have the
+    # correct syntax or not
+    if fullmatch(regExs["username"], user) and len(user) >= 2 and len(user) <= 16:
+        usernameOrEmail = "username"
+    elif fullmatch(regExs["email"], user) and len(user) >= 2 and len(user) <= 64:
+        usernameOrEmail = "email"
+    else:
+        return {"isValidLogin": False, "usernameOrEmail": "username"}
+
+    invalidResponse = {"isValidLogin": False, "usernameOrEmail": usernameOrEmail}
+
+    # Again, before consulting anything, the code first checks whether the password have
+    # the correct syntax or not
+    if fullmatch(regExs["password"], password):
+        # Now that we know that the syntax for both username/email and password are
+        # valid, we first consult with the database to find out whether the user exists
+        # or not
+        connection = MongoClient(os.environ.get("MONGODB_URI"))
+        usersTable = getDbTable(connection, "users")
+        userExists = usersTable.find_one({f"{usernameOrEmail}": user}, {"hash": 1})
+
+        # If it exists, we compare the password that the user provided with the hashed
+        # password stored in the database
+        if userExists:
+            hashedPassword: str = userExists["hash"]
+            isValidPassword: bool = check_password_hash(hashedPassword, password)
+
+            # If the password that the user provided it's the same as the hashed password
+            # that we have stored in the database, then we log in the user, and return a
+            # valid response
+            if isValidPassword:
+                session["loginId"] = str(userExists["_id"])
+                connection.close()
+
+                response = {"isValidLogin": True}
+                return response
+
+            # If any of previous checks fails, then we return an invalid response
+            else:
+                return invalidResponse
+        else:
+            return invalidResponse
+    else:
+        return invalidResponse
+
+
+apiDomain: str = "https://api.spoonacular.com"
+
 
 # Make queries to search at the API
-def query(q):
-    url = f'{apiDomain}/food/search?apiKey={apiKey}&query={q}'
-    response = requests.get(url).json()['searchResults']
-
-    for i in response:
-        if ' ' in i['name']:
-            i['name'] = i['name'].replace(' ', '-')
+def query(search: str) -> dict:
+    url: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={search}&number=25&addRecipeInformation=true"
+    response: dict = requests.get(url).json()
 
     return response
 
 
 # Make queries to get information of the API
-def article(articleType, cursor, articleId):
-    if articleType == 'R':
-        url = f'{apiDomain}/recipes/{articleId}/information?apiKey={apiKey}'
-    elif articleType == 'P':
-        url = f'{apiDomain}/food/products/{articleId}?apiKey={apiKey}'
+def getArticle(savedArticlesTable, articleId):
+    url = f"{apiDomain}/recipes/{articleId}/information?apiKey={spoonacularAPIKey}&includeNutrition=false"
+    article = requests.get(url).json()
+
+    # Sometimes the "recipes/{articleId}/information" Spoonacular API endpoint does not include "image" or "summary" keys in the response.
+    # In those cases, we make a call on the "recipes/complexSearch" API endpoint to retrieve and include those remaining values.
+    if not "image" in article or not "summary" in article:
+        searchEndpointURL: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={article['title']}&number=1"
+        searchedArticle = requests.get(searchEndpointURL).json()
+
+        if not "image" in article:
+            article["image"] = searchedArticle["results"][0]["image"]
+
+        if not "summary" in article:
+            article["summary"] = searchedArticle["results"][0]["summary"]
+
+    loginId = getLoginId(session.get("loginId"))
+    if loginId:
+        savedArticle: dict = savedArticlesTable.find_one(
+            {"articleId": articleId, "userId": loginId}, {"_id": 1}
+        )
+
+        if savedArticle:
+            article["isSaved"]: bool = True
+
+    winePrice = float(
+        article["winePairing"]["productMatches"][0]["price"].replace("$", "")
+    )
+    winePrice = "{:.2f}".format(winePrice)
+    article["winePairing"]["productMatches"][0]["price"] = winePrice
+
+    return article
+
+
+def saveArticle(savedArticlesTable, articleId, loginId):
+    isSaved = request.form.get("savedArticle")
+    article = {"userId": loginId, "articleId": articleId}
+
+    if isSaved == "True":
+        savedArticlesTable.delete_one(article)
     else:
-        url = f'{apiDomain}/food/menuItems/{articleId}?apiKey={apiKey}'
-
-    response = requests.get(url).json()
-    logIn = session.get("user_id")
-    savedArticle = cursor.execute(
-        f"SELECT articleType FROM savedArticles WHERE articleId = '{articleId}' AND userId = '{logIn}'")
-    savedArticle = cursor.fetchall()
-    getArticle = [response, savedArticle, articleId]
-    return getArticle
-
-
-def saveArticle(cursor, username, articleType, connection):
-    if session.get("user_id"):
-        articleId = request.args.get('articleId')
-        savedArticle = request.form.get('savedArticle')
-        logIn = session.get("user_id")
-        if savedArticle == 'True':
-            cursor.execute(
-                f"DELETE FROM savedArticles WHERE userId = '{logIn}' AND articleId = '{articleId}'")
-            connection.commit()
-        else:
-            cursor.execute(
-                f"INSERT INTO savedArticles (userId, articleType, articleId) VALUES ('{logIn}', '{articleType}', '{articleId}')")
-            connection.commit()
-
-        getArticle = article(articleType, cursor, articleId)
-        connection.close()
-        return render_template("article.html", getArticle=getArticle, articleType=articleType, logIn=logIn, username=username)
-
-    return redirect("/login")
-
-
-def searchPost():
-    search = request.form.get("search")
-    return redirect(f"/search?q={search}")
+        savedArticlesTable.insert_one(article)
 
 
 # Check if an image has a valid format
 def allowedImage(image):
-    allowedExtensions = set(['png', 'jpg', 'jpeg', 'bmp', 'webp'])
-    return '.' in image and image.rsplit('.', 1)[1].lower() in allowedExtensions
+    allowedExtensions = set(["png", "jpg", "jpeg", "bmp", "webp"])
+    return "." in image and image.rsplit(".", 1)[1].lower() in allowedExtensions
 
 
-# Crops profile images to an 1:1 aspect ratio
+# Crops profile images to a 1:1 aspect ratio
 def cropImage(image):
     width, height = image.size
+
     if width == height:
         return image
-    offset = int(abs(height-width)/2)
+
+    offset = int(abs(height - width) / 2)
+
     if width > height:
-        image = image.crop([offset, 0, width-offset, height])
+        image = image.crop([offset, 0, width - offset, height])
     else:
-        image = image.crop([0, offset, width, height-offset])
+        image = image.crop([0, offset, width, height - offset])
     return image
 
 
-# Saves images (banner and profile pictures), keeps a record of the images of each image of each user, and updates the uploaded images
-def uploadImage(cursor, profilePic, bannerPic, username, connection, logIn):
+def getProfileInfo(loginId):
+    connection = MongoClient(os.environ.get("MONGODB_URI"))
+    usersTable = getDbTable(connection, "users")
+    savedArticlesTable = getDbTable(connection, "savedArticles")
+
+    profileInfo = usersTable.find_one(
+        {"_id": loginId}, {"username": 1, "profilePic": 1, "bannerPic": 1, "_id": 0}
+    )
+    savedArticles = savedArticlesTable.find(
+        {"userId": loginId}, {"articleId": 1, "_id": 0}
+    )
+
+    savedArticlesIds = []
+    for article in savedArticles:
+        savedArticlesIds.append(article["articleId"])
+
+    savedArticles = []
+    for articleId in savedArticlesIds:
+        fullArticle = getArticle(savedArticlesTable, articleId)
+        article = {
+            "title": fullArticle["title"],
+            "image": fullArticle["image"],
+            "id": fullArticle["id"],
+        }
+        savedArticles.append(article)
+
+    profileInfo["savedArticles"] = savedArticles
+    return profileInfo
+
+
+class ProfileImages(TypedDict):
+    profilePic: str
+    bannerPic: str
+
+
+# Saves images (banner and profile pictures), keeps a record of the images of each image of each user,
+# and updates the uploaded images
+def uploadImage(profilePic, bannerPic, username, connection, loginId):
     config = {
-        "apiKey": os.environ.get('FIREBASE_API_KEY'),
-        "authDomain": os.environ.get('AUTH_DOMAIN'),
-        "projectId": os.environ.get('PROJECT_ID'),
-        "storageBucket": os.environ.get('STORAGE_BUCKET'),
-        "messagingSenderId": os.environ.get('MESSAGING_SENDER_ID'),
-        "appId": os.environ.get('APP_ID'),
-        "measurementId": os.environ.get('MEASUREMENT_ID'),
-        "serviceAccount": {
-                "type": os.environ.get('TYPE'),
-                "project_id": os.environ.get('PROJECT_ID'),
-                "private_key_id": os.environ.get('PRIVATE_KEY_ID'),
-                "private_key": os.environ.get('PRIVATE_KEY').replace('\\n', '\n'),
-                "client_email": os.environ.get('CLIENT_EMAIL'),
-                "client_id": os.environ.get('CLIENT_ID'),
-                "auth_uri": os.environ.get('AUTH_URI'),
-                "token_uri": os.environ.get('TOKEN_URI'),
-                "auth_provider_x509_cert_url": os.environ.get('AUTH_PROVIDER_X509_CERT_URL'),
-                "client_x509_cert_url": os.environ.get('CLIENT_X509_CERT_URL')
-            },
-        "databaseURL": os.environ.get('DATABASE_URL')
+        "apiKey": os.environ.get("FIREBASE_API_KEY"),
+        "authDomain": os.environ.get("AUTH_DOMAIN"),
+        "projectId": os.environ.get("PROJECT_ID"),
+        "storageBucket": os.environ.get("STORAGE_BUCKET"),
+        "messagingSenderId": os.environ.get("MESSAGING_SENDER_ID"),
+        "appId": os.environ.get("APP_ID"),
+        "measurementId": os.environ.get("MEASUREMENT_ID"),
+        "databaseURL": os.environ.get("DATABASE_URL"),
     }
 
     firebase = pyrebase.initialize_app(config)
     storage = firebase.storage()
-    profilePicDir = 'static/temp/profilePictures/'
-    bannerPicDir = 'static/temp/bannerPictures/'
+    profilePicsBasePath = "static/temp/profilePics/"
+    bannerPicsBasePath = "static/temp/bannerPics/"
+    usersTable = getDbTable(connection, "users")
+
+    successfulMessage = "The image has been uploaded successfully!"
+    errorMessage = "Allowed image types are: png, jpg, jpeg, webp, and bmp."
 
     if profilePic and bannerPic:
         if allowedImage(profilePic.filename) and allowedImage(bannerPic.filename):
-            profFilename = secure_filename(profilePic.filename)
-            bannFilename = secure_filename(bannerPic.filename)
+            profilePic.filename = secure_filename(
+                str(Path(profilePic.filename).with_suffix(".webp"))
+            )
+            bannerPic.filename = secure_filename(
+                str(Path(bannerPic.filename).with_suffix(".webp"))
+            )
 
-            image = Image.open(profilePic)
-            profilePic = cropImage(image)
+            with Image.open(profilePic) as openedProfilePic:
+                openedProfilePic = cropImage(openedProfilePic)
+                openedProfilePic.save(
+                    os.path.join(profilePicsBasePath, profilePic.filename), "webp"
+                )
 
-            profilePic.save(os.path.join(profilePicDir, profFilename))
-            bannerPic.save(os.path.join(bannerPicDir, bannFilename))
+            with Image.open(bannerPic) as openedBannerPic:
+                openedBannerPic.save(
+                    os.path.join(bannerPicsBasePath, bannerPic.filename), "webp"
+                )
 
-            formatIndex = profFilename.find(
-                '.', len(profFilename) - 5, len(profFilename) - 1)
-            profFilenameWebp = profFilename[:formatIndex] + '.webp'
-            formatIndex = bannFilename.find(
-                '.', len(bannFilename) - 5, len(bannFilename) - 1)
-            bannFilenameWebp = bannFilename[:formatIndex] + '.webp'
+            storage.child(profilePic.filename).put(
+                profilePicsBasePath + profilePic.filename
+            )
+            storage.child(bannerPic.filename).put(
+                bannerPicsBasePath + bannerPic.filename
+            )
 
-            cwebp(input_image=profilePicDir + profFilename,
-                  output_image=profilePicDir + profFilenameWebp, option='-q 80')
-            cwebp(input_image=bannerPicDir + bannFilename,
-                  output_image=bannerPicDir + bannFilenameWebp, option='-q 80')
+            updatedValue = {
+                "profilePic": profilePic.filename,
+                "bannerPic": bannerPic.filename,
+            }
+            usersTable.update_one({"username": username}, {"$set": updatedValue}, True)
 
-            storage.child(profFilenameWebp).put(
-                profilePicDir + profFilenameWebp)
-            storage.child(bannFilenameWebp).put(
-                bannerPicDir + bannFilenameWebp)
+            os.remove(profilePicsBasePath + profilePic.filename)
+            os.remove(bannerPicsBasePath + bannerPic.filename)
 
-            cursor.execute(
-                f"UPDATE users SET profilePicDir = '{profFilenameWebp}', bannerPicDir = '{bannFilenameWebp}' WHERE username = '{username}'")
-            connection.commit()
-
-            os.remove(profilePicDir + profFilename)
-            os.remove(profilePicDir + profFilenameWebp)
-            os.remove(bannerPicDir + bannFilename)
-            os.remove(bannerPicDir + bannFilenameWebp)
-
-            picDirectory, articles = getProfInfo(cursor, logIn)
+            profileInfo = getProfileInfo(loginId)
             connection.close()
-            successfulMessage = 'The images have been uploaded successfully. You\'ll see the changes in a few minutes.'
 
-            return render_template("profile.html", successfulMessage=successfulMessage, picDirectory=picDirectory,
-                                   logIn=session.get("user_id"), username=username, articles=articles)
+            return render_template(
+                "profile.html",
+                successfulMessage=successfulMessage,
+                profileInfo=profileInfo,
+                loginId=loginId,
+            )
 
         else:
-            errorMessage = 'Allowed image types are: png, jpg, jpeg, webp, and bmp.'
-            return render_template("profile.html", errorMessage=errorMessage, logIn=session.get("user_id"), username=username)
+            return render_template(
+                "profile.html",
+                errorMessage=errorMessage,
+                profileInfo=profileInfo,
+                loginId=loginId,
+            )
 
     elif profilePic:
         if allowedImage(profilePic.filename):
-            profFilename = secure_filename(profilePic.filename)
+            profilePic.filename = secure_filename(
+                str(Path(profilePic.filename).with_suffix(".webp"))
+            )
 
-            image = Image.open(profilePic)
-            profilePic = cropImage(image)
-            profilePic.save(os.path.join(profilePicDir, profFilename))
+            with Image.open(profilePic) as openedProfilePic:
+                openedProfilePic = cropImage(openedProfilePic)
+                openedProfilePic.save(
+                    os.path.join(profilePicsBasePath, profilePic.filename), "webp"
+                )
 
-            formatIndex = profFilename.find(
-                '.', len(profFilename) - 5, len(profFilename) - 1)
-            profFilenameWebp = profFilename[:formatIndex] + '.webp'
+            storage.child(profilePic.filename).put(
+                profilePicsBasePath + profilePic.filename
+            )
 
-            cwebp(input_image=profilePicDir + profFilename,
-                  output_image=profilePicDir + profFilenameWebp, option='-q 80')
-            storage.child(profFilenameWebp).put(
-                profilePicDir + profFilenameWebp)
+            usersTable.update_one(
+                {"username": username},
+                {"$set": {"profilePic": profilePic.filename}},
+                True,
+            )
 
-            cursor.execute(
-                f"UPDATE users SET profilePicDir = '{profFilenameWebp}' WHERE username = '{username}'")
-            connection.commit()
-            picDirectory, articles = getProfInfo(cursor, logIn)
+            os.remove(profilePicsBasePath + profilePic.filename)
+
+            profileInfo = getProfileInfo(loginId)
             connection.close()
-            successfulMessage = 'The image has been uploaded successfully. You\'ll see the changes in a few minutes.'
 
-            return render_template("profile.html", successfulMessage=successfulMessage, picDirectory=picDirectory,
-                                   logIn=session.get("user_id"), username=username, articles=articles)
+            return render_template(
+                "profile.html",
+                successfulMessage=successfulMessage,
+                profileInfo=profileInfo,
+                loginId=loginId,
+            )
 
         else:
-            errorMessage = 'Allowed image types are - png, jpg, jpeg, webp, and bmp'
-            return render_template("profile.html", errorMessage=errorMessage, logIn=session.get("user_id"), username=username)
+            return render_template(
+                "profile.html",
+                errorMessage=errorMessage,
+                profileInfo=profileInfo,
+                loginId=loginId,
+            )
 
     else:
         if allowedImage(bannerPic.filename):
-            bannFilename = secure_filename(bannerPic.filename)
-            bannerPic.save(os.path.join(bannerPicDir, bannFilename))
+            bannerPic.filename = secure_filename(
+                str(Path(bannerPic.filename).with_suffix(".webp"))
+            )
 
-            formatIndex = bannFilename.find(
-                '.', len(bannFilename) - 5, len(bannFilename) - 1)
-            bannFilenameWebp = bannFilename[:formatIndex] + '.webp'
+            with Image.open(bannerPic) as openedBannerPic:
+                openedBannerPic.save(
+                    os.path.join(bannerPicsBasePath, bannerPic.filename), "webp"
+                )
 
-            cwebp(input_image=bannerPicDir + bannFilename,
-                  output_image=bannerPicDir + bannFilenameWebp, option='-q 80')
-            storage.child(bannFilenameWebp).put(
-                bannerPicDir + bannFilenameWebp)
+            storage.child(bannerPic.filename).put(
+                bannerPicsBasePath + bannerPic.filename
+            )
 
-            cursor.execute(
-                f"UPDATE users SET bannerPicDir = '{bannFilenameWebp}' WHERE username = '{username}'")
-            connection.commit()
-            picDirectory, articles = getProfInfo(cursor, logIn)
+            usersTable.update_one(
+                {"username": username}, {"$set": {"bannerPic": bannerPic.filename}}
+            )
+
+            os.remove(bannerPicsBasePath + bannerPic.filename)
+
+            profileInfo = getProfileInfo(loginId)
             connection.close()
-            successfulMessage = 'The image has been uploaded successfully. You\'ll see the changes in a few minutes.'
 
-            return render_template("profile.html", successfulMessage=successfulMessage, picDirectory=picDirectory,
-                                   logIn=session.get("user_id"), username=username, articles=articles)
+            return render_template(
+                "profile.html",
+                successfulMessage=successfulMessage,
+                profileInfo=profileInfo,
+                loginId=loginId,
+            )
 
         else:
-            errorMessage = 'Allowed image types are - png, jpg, jpeg, webp, and bmp'
-            return render_template("profile.html", errorMessage=errorMessage, logIn=session.get("user_id"), username=username)
+            return render_template(
+                "profile.html",
+                errorMessage=errorMessage,
+                profileInfo=profileInfo,
+                loginId=loginId,
+            )
 
 
-def getUsername(cursor):
-    logIn = session.get("user_id")
-    if logIn:
-        username = cursor.execute(
-            f"SELECT username FROM users WHERE id = '{logIn}'")
-        username = cursor.fetchone()[0]
-    else:
-        username = None
+# With this loop we can extract the article ID from the URL. Example:
+# URL: 'https://.../articles/pizza-bites-with-pumpkin-19234984'
+# Article ID extracted: 19234984
+def getArticleId(articleURL):
+    startPoint = 0
+    for i in range(len(articleURL) - 1, -1, -1):
+        if articleURL[i] == "-":
+            startPoint = i + 1
+            break
 
-    return username
-
-
-def getProfInfo(cursor, logIn):
-    # Make another separately query to get the saved articles information
-    picDirectory = cursor.execute(
-        f"SELECT profilePicDir, bannerPicDir FROM users WHERE id = '{logIn}'")
-    picDirectory = cursor.fetchall()
-    savedArticles = cursor.execute(
-        f"SELECT articleType, articleId FROM savedArticles WHERE userId = '{logIn}'")
-    savedArticles = cursor.fetchall()
-
-    articles = []
-    for i in savedArticles:
-        articles.append(article(i[0], cursor, i[1]))
-
-    return picDirectory, articles
+    articleId = articleURL[startPoint:]
+    articleId = int(articleId)
+    return articleId
