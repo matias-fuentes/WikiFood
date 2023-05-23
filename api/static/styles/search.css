@@ -11,6 +11,10 @@
     background-color: rgb(240, 240, 240);
 }
 
+.search-card__title {
+    font-size: 1.6rem;
+}
+
 .search-card__title:hover {
     text-decoration: underline;
 }
@@ -39,6 +43,10 @@
 
     .search-card > a, .search-card > p {
         width: 25.6rem;
+    }
+
+    .search-card__title {
+        font-size: 1.4rem;
     }
 }
 

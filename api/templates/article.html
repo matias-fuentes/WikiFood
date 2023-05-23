@@ -80,7 +80,7 @@
                                         <a href="{{ article['sourceUrl'] }}">{{ article['creditsText'] }}</a>
                                     </p>
                                 {% endif %}
-                                {% if article[1] %}
+                                {% if article['isSaved'] == True %}
                                     <form class="save-article-form" method="post">
                                         <button class="submit-article-form" type="submit" name="savedArticle" value="True">
                                             <img class="save-article" src="../static/svgs/article/saved-article.svg" />
@@ -172,22 +172,22 @@
                     <!-- Wine -->
                     <div class="bgc-wine description">
                         {% for i in article['winePairing']['productMatches'] %}
-                        <div class="flex-vertical">
-                            <h1>{{ i['title'] }}</h1>
-                            <img src="{{ i['imageUrl'] }}" />
-                            <div class="flex-vertical flex-row w100 buy-container">
-                                <div class="btn btn-price">
-                                    <h2>{{ i['price'] }}</h2>
+                            <div class="flex-vertical">
+                                <h1>{{ i['title'] }}</h1>
+                                <img src="{{ i['imageUrl'] }}" />
+                                <div class="flex-vertical flex-row w100 buy-container">
+                                    <div class="btn btn-price">
+                                        <h2>${{ i['price'] }}</h2>
+                                    </div>
+                                    <div>
+                                        <h2>|</h2>
+                                    </div>
+                                    <a href="{{ i['link'] }}" class="btn btn-wine">
+                                        <div>Buy Now</div>
+                                    </a>
                                 </div>
-                                <div>
-                                    <h2>|</h2>
-                                </div>
-                                <a href="{{ i['link'] }}" class="btn btn-wine">
-                                    <div>Buy Now</div>
-                                </a>
+                                <p>{{ i['description'] }}</p>
                             </div>
-                            <p>{{ i['description'] }}</p>
-                        </div>
                         {% endfor %}
                     </div>
                 {% endif %}

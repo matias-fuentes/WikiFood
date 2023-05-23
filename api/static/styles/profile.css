@@ -98,16 +98,26 @@
 
 .saved-articles__header {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
     text-align: center;
     margin-bottom: 1.6rem;
+    position: relative;
 }
 
-.saved-articles__btn--delete {
+.saved-articles__deleteBtn {
+    position: absolute;
     background-color: rgb(218, 82, 83);
     padding: 0.6rem 1.2rem;
-    opacity: 0.75;
+    opacity: 0.6;
+    margin-left: 1.8rem;
+    left: 0;
+    cursor: not-allowed !important;
+}
+
+.saved-articles__deleteBtn--selected {
+    cursor: pointer !important;
+    opacity: 1;
 }
 
 .mrg-16 {
@@ -118,31 +128,23 @@
     margin: 0;
 }
 
-.saved-articles__sAll {
-    display: flex;
-    justify-content: center;
+.saved-articles__selectAll {
+    width: 8.8rem;
 }
 
-.saved-articles__sAll-checkbox {
-    width: 6rem;
-    height: 4rem;
-    margin-right: 1.6rem;
+.saved-articles__bigContainer {
+    width: 67rem;
 }
 
-.saved-articles__sAll-checkbox:hover {
+#select-all, .saved-articles__checkbox {
+    width: 2rem;
+    height: 2rem;
+    margin: 0.4rem 0.8rem;
     cursor: pointer;
 }
 
-.saved-articles__quarter-container {
-    width: 25%;
-}
-
-.saved-articles__half-container {
-    width: 50%;
-}
-
-.saved-articles__thead {
-    padding: 1.2rem 0rem;
+.saved-articles__image {
+    width: 10rem;
 }
 
 .save-flx-end {
@@ -216,5 +218,15 @@
 
     .saved-articles__type-col {
         display: table-cell;
+    }
+
+    #select-all, .saved-articles__checkbox {
+        width: 4rem;
+        height: 4rem;
+        margin: 1.2rem 2.4rem;
+    }
+
+    .saved-articles__image {
+        width: 20rem;
     }
 }

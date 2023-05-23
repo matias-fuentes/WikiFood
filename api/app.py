@@ -1,10 +1,8 @@
-import json
-
 from os import environ
 from re import fullmatch
 from bson import ObjectId
 from pymongo import MongoClient
-from typing import Union, Optional
+from typing import Union
 from dotenv import load_dotenv, find_dotenv
 from werkzeug.security import generate_password_hash
 from werkzeug.wrappers import Response as RedirectResponse
@@ -15,9 +13,11 @@ from flask import (
     request,
     session,
     Response as FlaskResponse,
+    Markup,
 )
 from helpers import (
     login_required,
+    getLoginId,
     isValidLogin,
     query,
     getArticle,
@@ -27,7 +27,6 @@ from helpers import (
     getDbTable,
     getArticleId,
     getProfileInfo,
-    destructureProfileImgs,
 )
 
 load_dotenv(find_dotenv())
@@ -58,7 +57,8 @@ def index() -> Union[SearchPostResponse, str]:
     if request.method == "POST":
         return searchPost()
 
-    return render_template("index.html", index=True, loggedInId=session.get("user_id"))
+    loginId = getLoginId(session.get("loginId"))
+    return render_template("index.html", index=True, loginId=loginId)
 
 
 @app.route("/articles", methods=["GET", "POST"])
@@ -68,12 +68,24 @@ def searchArticles() -> Union[SearchPostResponse, str]:
 
     # Handle empty state if there is no query param on the URL
     search: str | None = request.args.get("q")
+    loginId = getLoginId(session.get("loginId"))
 
     if not search:
-        return render_template("search.html", emptyState=True)
+        return render_template("search.html", emptyState=True, loginId=loginId)
 
     response: dict = query(search)
-    return render_template("search.html", response=response)
+    if response:
+        for i in response["results"]:
+            # Before we convert i["summary"] to HTML with Markup(), we must remove any
+            # instance of any anchor tag that it may have, since if we don't, it will
+            # break up the HTML since we will be putting an anchor tag (hyperlink of the
+            # summary) inside an anchor tag (the recipe card, which redirects you to its
+            # respective article), and that's not possible.
+            i["summary"].replace("<a>", "")
+            i["summary"].replace("</a>", "")
+            i["summary"] = Markup(i["summary"])
+
+    return render_template("search.html", response=response, loginId=loginId)
 
 
 @app.route("/articles/<articleURL>", methods=["GET", "POST"])
@@ -84,6 +96,8 @@ def articleId(articleURL):
 
     articleId = getArticleId(articleURL)
     article = getArticle(savedArticlesTable, articleId)
+    print(article["winePairing"]["productMatches"])
+    loginId = getLoginId(session.get("loginId"))
 
     # Handle POST method if the user search someting on the search bar
     if request.method == "POST":
@@ -92,15 +106,13 @@ def articleId(articleURL):
         if search:
             return searchPost()
 
-        loggedInId = ObjectId(session.get("user_id"))
-
-        if loggedInId:
-            saveArticle(savedArticlesTable, articleId, loggedInId)
+        if loginId:
+            saveArticle(savedArticlesTable, articleId, loginId)
         else:
             return redirect("/login")
 
     connection.close()
-    return render_template("article.html", article=article)
+    return render_template("article.html", article=article, loginId=loginId)
 
 
 # RegExs to validate inputs
@@ -111,7 +123,7 @@ passwordRegEx = "[A-Za-z0-9¡!¿?$+._-]{6,16}"
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    # Forget any user_id
+    # Forget any loginId
     session.clear()
 
     if request.method == "POST":
@@ -197,8 +209,8 @@ def signup():
                 "hash": hashedPassword,
             }
             usersTable.insert_one(userToInsert)
-            userId = usersTable.find_one({"username": username}, {"_id": 1})["_id"]
-            session["user_id"] = str(userId)
+            loginId = usersTable.find_one({"username": username}, {"_id": 1})["_id"]
+            session["loginId"] = str(loginId)
             connection.close()
 
             return redirect("/")
@@ -254,8 +266,7 @@ def logout():
 @login_required
 def profile():
     connection = MongoClient(environ.get("MONGODB_URI"))
-    usersTable = getDbTable(connection, "users")
-    loggedInId = ObjectId(session.get("user_id"))
+    loginId = getLoginId(session.get("loginId"))
 
     if request.method == "POST":
         search = request.form.get("search")
@@ -267,21 +278,17 @@ def profile():
         bannerPic = request.files["bannerPic"]
 
         if profilePic or bannerPic:
-            username = usersTable.find_one(
-                {"_id": loggedInId}, {"username": 1, "_id": 0}
-            )["username"]
-            return uploadImage(profilePic, bannerPic, username, connection, loggedInId)
+            usersTable = getDbTable(connection, "users")
+            username = usersTable.find_one({"_id": loginId}, {"username": 1, "_id": 0})[
+                "username"
+            ]
+            return uploadImage(profilePic, bannerPic, username, connection, loginId)
 
-    profileInfo = getProfileInfo(connection, loggedInId)
+    profileInfo = getProfileInfo(loginId)
     connection.close()
-
-    profileImages = profileInfo["profileImages"]
-    savedArticles = profileInfo["savedArticles"]
-    profilePic, bannerPic = destructureProfileImgs(profileImages)
 
     return render_template(
         "profile.html",
-        profilePic=profilePic,
-        bannerPic=bannerPic,
-        savedArticles=savedArticles,
+        profileInfo=profileInfo,
+        loginId=loginId,
     )

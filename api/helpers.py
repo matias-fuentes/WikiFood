@@ -1,13 +1,13 @@
+import os
 import pyrebase
 import requests
 
 from PIL import Image
 from re import fullmatch
+from pathlib import Path
 from bson import ObjectId
 from functools import wraps
-from webptools import cwebp
 from pymongo import MongoClient
-from os import environ, path, remove
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv, find_dotenv
 from typing import TypedDict, Union, Optional
@@ -16,7 +16,7 @@ from werkzeug.wrappers import Response as RedirectResponse
 from flask import redirect, render_template, request, session
 
 load_dotenv(find_dotenv())
-apiKey: Optional[str] = environ.get("API_KEY")
+spoonacularAPIKey: Optional[str] = os.environ.get("SPOONACULAR_API_KEY")
 
 
 def searchPost() -> Union[RedirectResponse, None]:
@@ -31,11 +31,19 @@ def searchPost() -> Union[RedirectResponse, None]:
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if session.get("user_id") is None:
+        if session.get("loginId") is None:
             return redirect("/login")
         return f(*args, **kwargs)
 
     return decorated_function
+
+
+def getLoginId(sessionLoginId):
+    loginId = None
+    if sessionLoginId:
+        loginId = ObjectId(sessionLoginId)
+
+    return loginId
 
 
 def getDbTable(connection, table: str):
@@ -44,8 +52,8 @@ def getDbTable(connection, table: str):
     return table
 
 
-def getUsername(usersTable, loggedInId):
-    username = usersTable.find_one({"_id": loggedInId}, {"username": 1, "_id": 0})[
+def getUsername(usersTable, loginId):
+    username = usersTable.find_one({"_id": loginId}, {"username": 1, "_id": 0})[
         "username"
     ]
 
@@ -74,7 +82,7 @@ def isValidLogin(user, password, regExs, session):
         # Now that we know that the syntax for both username/email and password are
         # valid, we first consult with the database to find out whether the user exists
         # or not
-        connection = MongoClient(environ.get("MONGODB_URI"))
+        connection = MongoClient(os.environ.get("MONGODB_URI"))
         usersTable = getDbTable(connection, "users")
         userExists = usersTable.find_one({f"{usernameOrEmail}": user}, {"hash": 1})
 
@@ -88,7 +96,7 @@ def isValidLogin(user, password, regExs, session):
             # that we have stored in the database, then we log in the user, and return a
             # valid response
             if isValidPassword:
-                session["user_id"] = str(userExists["_id"])
+                session["loginId"] = str(userExists["_id"])
                 connection.close()
 
                 response = {"isValidLogin": True}
@@ -108,7 +116,7 @@ apiDomain: str = "https://api.spoonacular.com"
 
 # Make queries to search at the API
 def query(search: str) -> dict:
-    url: str = f"{apiDomain}/recipes/complexSearch?apiKey={apiKey}&query={search}&number=25&addRecipeInformation=true"
+    url: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={search}&number=25&addRecipeInformation=true"
     response: dict = requests.get(url).json()
 
     return response
@@ -116,25 +124,42 @@ def query(search: str) -> dict:
 
 # Make queries to get information of the API
 def getArticle(savedArticlesTable, articleId):
-    url = f"{apiDomain}/recipes/{articleId}/information?apiKey={apiKey}"
+    url = f"{apiDomain}/recipes/{articleId}/information?apiKey={spoonacularAPIKey}&includeNutrition=false"
     article = requests.get(url).json()
-    loggedInId = ObjectId(session.get("user_id"))
 
-    if loggedInId:
+    # Sometimes the "recipes/{articleId}/information" Spoonacular API endpoint does not include "image" or "summary" keys in the response.
+    # In those cases, we make a call on the "recipes/complexSearch" API endpoint to retrieve and include those remaining values.
+    if not "image" in article or not "summary" in article:
+        searchEndpointURL: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={article['title']}&number=1"
+        searchedArticle = requests.get(searchEndpointURL).json()
+
+        if not "image" in article:
+            article["image"] = searchedArticle["results"][0]["image"]
+
+        if not "summary" in article:
+            article["summary"] = searchedArticle["results"][0]["summary"]
+
+    loginId = getLoginId(session.get("loginId"))
+    if loginId:
         savedArticle: dict = savedArticlesTable.find_one(
-            {"articleId": articleId, "userId": loggedInId}, {"_id": 1}
+            {"articleId": articleId, "userId": loginId}, {"_id": 1}
         )
 
         if savedArticle:
             article["isSaved"]: bool = True
 
-    print(article)
+    winePrice = float(
+        article["winePairing"]["productMatches"][0]["price"].replace("$", "")
+    )
+    winePrice = "{:.2f}".format(winePrice)
+    article["winePairing"]["productMatches"][0]["price"] = winePrice
+
     return article
 
 
-def saveArticle(savedArticlesTable, articleId, loggedInId):
+def saveArticle(savedArticlesTable, articleId, loginId):
     isSaved = request.form.get("savedArticle")
-    article = {"userId": loggedInId, "articleId": articleId}
+    article = {"userId": loginId, "articleId": articleId}
 
     if isSaved == "True":
         savedArticlesTable.delete_one(article)
@@ -148,7 +173,7 @@ def allowedImage(image):
     return "." in image and image.rsplit(".", 1)[1].lower() in allowedExtensions
 
 
-# Crops profile images to an 1:1 aspect ratio
+# Crops profile images to a 1:1 aspect ratio
 def cropImage(image):
     width, height = image.size
 
@@ -164,18 +189,33 @@ def cropImage(image):
     return image
 
 
-def getProfileInfo(connection, loggedInId):
+def getProfileInfo(loginId):
+    connection = MongoClient(os.environ.get("MONGODB_URI"))
     usersTable = getDbTable(connection, "users")
     savedArticlesTable = getDbTable(connection, "savedArticles")
 
-    profileImages = usersTable.find_one(
-        {"_id": loggedInId}, {"profilePic": 1, "bannerPic": 1, "_id": 0}
+    profileInfo = usersTable.find_one(
+        {"_id": loginId}, {"username": 1, "profilePic": 1, "bannerPic": 1, "_id": 0}
     )
-    savedArticles = list(
-        savedArticlesTable.find({"userId": loggedInId}, {"articleId": 1, "_id": 0})
+    savedArticles = savedArticlesTable.find(
+        {"userId": loginId}, {"articleId": 1, "_id": 0}
     )
 
-    profileInfo = {"profileImages": profileImages, "savedArticles": savedArticles}
+    savedArticlesIds = []
+    for article in savedArticles:
+        savedArticlesIds.append(article["articleId"])
+
+    savedArticles = []
+    for articleId in savedArticlesIds:
+        fullArticle = getArticle(savedArticlesTable, articleId)
+        article = {
+            "title": fullArticle["title"],
+            "image": fullArticle["image"],
+            "id": fullArticle["id"],
+        }
+        savedArticles.append(article)
+
+    profileInfo["savedArticles"] = savedArticles
     return profileInfo
 
 
@@ -184,47 +224,24 @@ class ProfileImages(TypedDict):
     bannerPic: str
 
 
-def destructureProfileImgs(profileImages: ProfileImages) -> tuple[str, str]:
-    profilePic = None
-    bannerPic = None
-    if "profilePic" in profileImages:
-        profilePic = profileImages["profilePic"]
-    if "bannerPic" in profileImages:
-        bannerPic = profileImages["bannerPic"]
-
-    return (profilePic, bannerPic)
-
-
 # Saves images (banner and profile pictures), keeps a record of the images of each image of each user,
 # and updates the uploaded images
-def uploadImage(profilePic, bannerPic, username, connection, loggedInId):
+def uploadImage(profilePic, bannerPic, username, connection, loginId):
     config = {
-        "apiKey": environ.get("FIREBASE_API_KEY"),
-        "authDomain": environ.get("AUTH_DOMAIN"),
-        "projectId": environ.get("PROJECT_ID"),
-        "storageBucket": environ.get("STORAGE_BUCKET"),
-        "messagingSenderId": environ.get("MESSAGING_SENDER_ID"),
-        "appId": environ.get("APP_ID"),
-        "measurementId": environ.get("MEASUREMENT_ID"),
-        "serviceAccount": {
-            "type": environ.get("TYPE"),
-            "project_id": environ.get("PROJECT_ID"),
-            "private_key_id": environ.get("PRIVATE_KEY_ID"),
-            "private_key": environ.get("PRIVATE_KEY").replace("\\n", "\n"),
-            "client_email": environ.get("CLIENT_EMAIL"),
-            "client_id": environ.get("CLIENT_ID"),
-            "auth_uri": environ.get("AUTH_URI"),
-            "token_uri": environ.get("TOKEN_URI"),
-            "auth_provider_x509_cert_url": environ.get("AUTH_PROVIDER_X509_CERT_URL"),
-            "client_x509_cert_url": environ.get("CLIENT_X509_CERT_URL"),
-        },
-        "databaseURL": environ.get("DATABASE_URL"),
+        "apiKey": os.environ.get("FIREBASE_API_KEY"),
+        "authDomain": os.environ.get("AUTH_DOMAIN"),
+        "projectId": os.environ.get("PROJECT_ID"),
+        "storageBucket": os.environ.get("STORAGE_BUCKET"),
+        "messagingSenderId": os.environ.get("MESSAGING_SENDER_ID"),
+        "appId": os.environ.get("APP_ID"),
+        "measurementId": os.environ.get("MEASUREMENT_ID"),
+        "databaseURL": os.environ.get("DATABASE_URL"),
     }
 
     firebase = pyrebase.initialize_app(config)
     storage = firebase.storage()
-    profilePicDirectory = "static/temp/profilePics/"
-    bannerPicDirectory = "static/temp/bannerPics/"
+    profilePicsBasePath = "static/temp/profilePics/"
+    bannerPicsBasePath = "static/temp/bannerPics/"
     usersTable = getDbTable(connection, "users")
 
     successfulMessage = "The image has been uploaded successfully!"
@@ -232,169 +249,137 @@ def uploadImage(profilePic, bannerPic, username, connection, loggedInId):
 
     if profilePic and bannerPic:
         if allowedImage(profilePic.filename) and allowedImage(bannerPic.filename):
-            profFilename = secure_filename(profilePic.filename)
-            bannFilename = secure_filename(bannerPic.filename)
-
-            image = Image.open(profilePic)
-            profilePic = cropImage(image)
-
-            profilePic.save(path.join(profilePicDirectory, profFilename))
-            bannerPic.save(path.join(bannerPicDirectory, bannFilename))
-
-            formatIndex = profFilename.find(
-                ".", len(profFilename) - 5, len(profFilename) - 1
+            profilePic.filename = secure_filename(
+                str(Path(profilePic.filename).with_suffix(".webp"))
             )
-            profFilenameWebp = profFilename[:formatIndex] + ".webp"
-            formatIndex = bannFilename.find(
-                ".", len(bannFilename) - 5, len(bannFilename) - 1
-            )
-            bannFilenameWebp = bannFilename[:formatIndex] + ".webp"
-
-            cwebp(
-                input_image=profilePicDirectory + profFilename,
-                output_image=profilePicDirectory + profFilenameWebp,
-                option="-q 80",
-            )
-            cwebp(
-                input_image=bannerPicDirectory + bannFilename,
-                output_image=bannerPicDirectory + bannFilenameWebp,
-                option="-q 80",
+            bannerPic.filename = secure_filename(
+                str(Path(bannerPic.filename).with_suffix(".webp"))
             )
 
-            storage.child(profFilenameWebp).put(profilePicDirectory + profFilenameWebp)
-            storage.child(bannFilenameWebp).put(bannerPicDirectory + bannFilenameWebp)
+            with Image.open(profilePic) as openedProfilePic:
+                openedProfilePic = cropImage(openedProfilePic)
+                openedProfilePic.save(
+                    os.path.join(profilePicsBasePath, profilePic.filename), "webp"
+                )
+
+            with Image.open(bannerPic) as openedBannerPic:
+                openedBannerPic.save(
+                    os.path.join(bannerPicsBasePath, bannerPic.filename), "webp"
+                )
+
+            storage.child(profilePic.filename).put(
+                profilePicsBasePath + profilePic.filename
+            )
+            storage.child(bannerPic.filename).put(
+                bannerPicsBasePath + bannerPic.filename
+            )
 
             updatedValue = {
-                "profilePic": profFilenameWebp,
-                "bannerPic": bannFilenameWebp,
+                "profilePic": profilePic.filename,
+                "bannerPic": bannerPic.filename,
             }
             usersTable.update_one({"username": username}, {"$set": updatedValue}, True)
 
-            remove(profilePicDirectory + profFilename)
-            remove(profilePicDirectory + profFilenameWebp)
-            remove(bannerPicDirectory + bannFilename)
-            remove(bannerPicDirectory + bannFilenameWebp)
+            os.remove(profilePicsBasePath + profilePic.filename)
+            os.remove(bannerPicsBasePath + bannerPic.filename)
 
-            profileInfo = getProfileInfo(connection, loggedInId)
+            profileInfo = getProfileInfo(loginId)
             connection.close()
-
-            savedArticles = profileInfo["savedArticles"]
-            profileImages = profileInfo["profileImages"]
-            profilePic, bannerPic = destructureProfileImgs(profileImages)
 
             return render_template(
                 "profile.html",
                 successfulMessage=successfulMessage,
-                profilePic=profilePic,
-                bannerPic=bannerPic,
-                username=username,
-                savedArticles=savedArticles,
+                profileInfo=profileInfo,
+                loginId=loginId,
             )
 
         else:
             return render_template(
                 "profile.html",
                 errorMessage=errorMessage,
-                username=username,
+                profileInfo=profileInfo,
+                loginId=loginId,
             )
 
     elif profilePic:
         if allowedImage(profilePic.filename):
-            profFilename = secure_filename(profilePic.filename)
-
-            image = Image.open(profilePic)
-            profilePic = cropImage(image)
-            profilePic.save(path.join(profilePicDirectory, profFilename))
-
-            formatIndex = profFilename.find(
-                ".", len(profFilename) - 5, len(profFilename) - 1
+            profilePic.filename = secure_filename(
+                str(Path(profilePic.filename).with_suffix(".webp"))
             )
-            profFilenameWebp = profFilename[:formatIndex] + ".webp"
 
-            cwebp(
-                input_image=profilePicDirectory + profFilename,
-                output_image=profilePicDirectory + profFilenameWebp,
-                option="-q 80",
+            with Image.open(profilePic) as openedProfilePic:
+                openedProfilePic = cropImage(openedProfilePic)
+                openedProfilePic.save(
+                    os.path.join(profilePicsBasePath, profilePic.filename), "webp"
+                )
+
+            storage.child(profilePic.filename).put(
+                profilePicsBasePath + profilePic.filename
             )
-            storage.child(profFilenameWebp).put(profilePicDirectory + profFilenameWebp)
 
             usersTable.update_one(
                 {"username": username},
-                {"$set": {"profilePic": profFilenameWebp}},
+                {"$set": {"profilePic": profilePic.filename}},
                 True,
             )
 
-            remove(profilePicDirectory + profFilename)
-            remove(profilePicDirectory + profFilenameWebp)
+            os.remove(profilePicsBasePath + profilePic.filename)
 
-            profileInfo = getProfileInfo(connection, loggedInId)
+            profileInfo = getProfileInfo(loginId)
             connection.close()
-
-            savedArticles = profileInfo["savedArticles"]
-            profileImages = profileInfo["profileImages"]
-            profilePic, bannerPic = destructureProfileImgs(profileImages)
 
             return render_template(
                 "profile.html",
                 successfulMessage=successfulMessage,
-                profilePic=profilePic,
-                bannerPic=bannerPic,
-                username=username,
-                savedArticles=savedArticles,
+                profileInfo=profileInfo,
+                loginId=loginId,
             )
 
         else:
             return render_template(
                 "profile.html",
                 errorMessage=errorMessage,
-                username=username,
+                profileInfo=profileInfo,
+                loginId=loginId,
             )
 
     else:
         if allowedImage(bannerPic.filename):
-            bannFilename = secure_filename(bannerPic.filename)
-            bannerPic.save(path.join(bannerPicDirectory, bannFilename))
-
-            formatIndex = bannFilename.find(
-                ".", len(bannFilename) - 5, len(bannFilename) - 1
+            bannerPic.filename = secure_filename(
+                str(Path(bannerPic.filename).with_suffix(".webp"))
             )
-            bannFilenameWebp = bannFilename[:formatIndex] + ".webp"
 
-            cwebp(
-                input_image=bannerPicDirectory + bannFilename,
-                output_image=bannerPicDirectory + bannFilenameWebp,
-                option="-q 80",
+            with Image.open(bannerPic) as openedBannerPic:
+                openedBannerPic.save(
+                    os.path.join(bannerPicsBasePath, bannerPic.filename), "webp"
+                )
+
+            storage.child(bannerPic.filename).put(
+                bannerPicsBasePath + bannerPic.filename
             )
-            storage.child(bannFilenameWebp).put(bannerPicDirectory + bannFilenameWebp)
 
             usersTable.update_one(
-                {"username": username}, {"$set": {"bannerPic": bannFilenameWebp}}
+                {"username": username}, {"$set": {"bannerPic": bannerPic.filename}}
             )
 
-            remove(bannerPicDirectory + bannFilename)
-            remove(bannerPicDirectory + bannFilenameWebp)
+            os.remove(bannerPicsBasePath + bannerPic.filename)
 
-            profileInfo = getProfileInfo(connection, loggedInId)
+            profileInfo = getProfileInfo(loginId)
             connection.close()
-
-            savedArticles = profileInfo["savedArticles"]
-            profileImages = profileInfo["profileImages"]
-            profilePic, bannerPic = destructureProfileImgs(profileImages)
 
             return render_template(
                 "profile.html",
                 successfulMessage=successfulMessage,
-                profilePic=profilePic,
-                bannerPic=bannerPic,
-                username=username,
-                savedArticles=savedArticles,
+                profileInfo=profileInfo,
+                loginId=loginId,
             )
 
         else:
             return render_template(
                 "profile.html",
                 errorMessage=errorMessage,
-                username=username,
+                profileInfo=profileInfo,
+                loginId=loginId,
             )
 
 

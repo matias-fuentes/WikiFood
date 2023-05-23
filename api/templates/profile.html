@@ -3,10 +3,10 @@
 {% block profile %}
     <form class="profile-form" method="POST" enctype="multipart/form-data">
         <div class="banner">
-            {% if bannerPic %}
+            {% if profileInfo['bannerPic'] %}
                 <img
                     class="w100"
-                    src="https://firebasestorage.googleapis.com/v0/b/wikifood-24aa8.appspot.com/o/{{ bannerPic }}?alt=media&token=https://oauth2.googleapis.com/token"
+                    src="https://firebasestorage.googleapis.com/v0/b/wikifood-24aa8.appspot.com/o/{{ profileInfo['bannerPic'] }}?alt=media&token=https://oauth2.googleapis.com/token"
                 />
             {% endif %}
             <label for="upload-bann-pic" class="btn btn-primary btn-chng-bann flex-vertical">
@@ -21,11 +21,11 @@
                 accept=".png, .jpg, .jpeg, .webp, .bmp"
             />
 
-            {% if profilePic %}
+            {% if profileInfo['profilePic'] %}
                 <div class="profile-pic-container">
                     <img
                         class="profile-pic-container profile-pic-circle"
-                        src="https://firebasestorage.googleapis.com/v0/b/wikifood-24aa8.appspot.com/o/{{ profilePic }}?alt=media&token=https://oauth2.googleapis.com/token"
+                        src="https://firebasestorage.googleapis.com/v0/b/wikifood-24aa8.appspot.com/o/{{ profileInfo['profilePic'] }}?alt=media&token=https://oauth2.googleapis.com/token"
                     />
                     <label for="upload-prof-pic" class="upload-prof-pic">
                         <img class="upload-prof-pic-img" src="../static/svgs/profile/upload-photo.svg" />
@@ -58,52 +58,46 @@
         </div>
 
         <div class="banner__username">
-            <h1 class="no-mrg">admin</h1>
+            <h1 class="no-mrg">{{ profileInfo['username'] }}</h1>
         </div>
 
         <div class="saved-articles__header">
-            <div class="saved-articles__quarter-container">
-                <button class="saved-articles__btn--delete">
-                    <img class="saved-articles__btn--delete-icon" src="../static/svgs/profile/delete.svg" />
-                </button>
-            </div>
-            <div class="saved-articles__half-container">
-                <h1>Saved Articles</h1>
-            </div>
-            <div class="saved-articles__quarter-container"></div>
+            <button class="saved-articles__deleteBtn">
+                <img class="saved-articles__deleteBtn--icon" src="../static/svgs/profile/delete.svg" />
+            </button>
+            <h1>Saved Articles</h1>
         </div>
 
         <table class="mrg-16">
             <thead>
                 <tr>
-                    <th class="saved-articles__quarter-container">
-                        <div class="saved-articles__sAll">
-                            <input class="saved-articles__sAll-checkbox" type="checkbox" />
-                            <h2>Select All</h2>
-                        </div>
+                    <th class="saved-articles__selectAll">
+                        <input id="select-all" type="checkbox" />
                     </th>
-                    <th class="saved-articles__half-container saved-articles__thead">
-                        <h2>Title</h2>
+                    <th class="saved-articles__bigContainer">
+                        <h2>Image</h2>
+                    </th>
+                    <th class="saved-articles__bigContainer">
+                        <h2>Recipe</h2>
                     </th>
                 </tr>
             </thead>
             <tbody>
-                {% for article in savedArticles %}
+                {% for article in profileInfo['savedArticles'] %}
                     <tr>
                         <td>
-                            <div>
-                                <input type="checkbox" />
-                                <img src="{{ article['image'] }}" />
-                                <a
-                                    
-                                    href="/articles/{{ article['title'] }}-{{ article['id'] }}"
-                                >
-                                    <img src="{{ article['image'] }}" />
-                                </a>
-                            </div>
+                            <input class="saved-articles__checkbox" type="checkbox" />
                         </td>
                         <td>
-                            <a href="/articles/{{ article['title'] }}-{{ article['id'] }}">
+                            <a
+                                
+                            href="/articles/{{ article['title'].lower().replace(' ', '-') }}-{{ article['id'] }}"
+                        >
+                            <img class="saved-articles__image" src="{{ article['image'] }}" />
+                        </a>
+                        </td>
+                        <td>
+                            <a href="/articles/{{ article['title'].lower().replace(' ', '-') }}-{{ article['id'] }}">
                                 <h2>{{ article['title'] }}</h2>
                             </a>
                         </td>

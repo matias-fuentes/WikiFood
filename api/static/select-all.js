@@ -1,92 +1,49 @@
-const selectAll = document.querySelector('.saved-articles__btn--delete');
-const btnDeleteIcon = document.querySelector('.saved-articles__btn--delete-icon')
-const checkboxes = Array.from(document.querySelectorAll('.td-checkbox'));
-const articleImages = Array.from(document.querySelectorAll('.article-img'));
+const selectAll = document.getElementById('select-all');
+const deleteBtn = document.querySelector('.saved-articles__deleteBtn');
+const checkboxes = Array.from(document.querySelectorAll('.saved-articles__checkbox'));
 const trs = Array.from(document.querySelectorAll('tr'));
-trs.splice(0, 1);
 
-let i;
-if (articleImages[0] === null) {
-    i = 0;
-} else {
-    i = 1;
-}
-for (i; i < articleImages.length; i++) {
-    articleImages.splice(i, 1);
-}
-
-selectAll.addEventListener('click', function() {
+selectAll.addEventListener('click', () => {
     if (selectAll.checked) {
-        btnDeleteIcon.style.opacity = '1';
-        // $('.delete-icon').css('opacity', '1');
+        deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
         checkboxes.forEach(checkbox => {
             checkbox.checked = true;
         });
+        trs.forEach(tr => {
+            tr.classList.toggle("selected");
+        })
     } else {
-        btnDeleteIcon.style.opacity = '0.6';
-        // $('.delete-icon').css('opacity', '0.6');
+        deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
         checkboxes.forEach(checkbox => {
             checkbox.checked = false;
         });
+        trs.forEach(tr => {
+            tr.classList.toggle("selected");
+        })
     }
-
-    trs.forEach(tr => {
-        if (selectAll.checked) {
-            if (!tr.classList.contains("selected")) {
-                tr.classList.toggle("selected");
-            }
-        } else {
-            if (tr.classList.contains("selected")) {
-                tr.classList.toggle("selected");
-            }
-        }
-    });
 });
-
-articleImages.forEach((image, index) => {
-    image.addEventListener('click', function() {
-        trs[index].classList.toggle("selected");
-        let j = 0;
-        for (let i = 0; i < articleImages.length; i++) {
-            if (trs[i].classList.contains("selected")) {
-                j++;
-            }
-        }
-        if (j === articleImages.length) {
-            selectAll.checked = true;
-        } else {
-            selectAll.checked = false;
-        }
-    });
-});
-
-trs.forEach(tr => {
-    tr.addEventListener('click', function() {
-        for (let i = 0; i < trs.length; i++) {
-            if (trs[i].classList.contains("selected")) {
-                $('.delete-icon').css('opacity', '1');
-                break;
-            } else {
-                $('.delete-icon').css('opacity', '0.6');
-            }
-        }
-    });
-})
 
 checkboxes.forEach((checkbox, index) => {
-    checkbox.addEventListener('click', function() {
-        trs[index].classList.toggle("selected");
+    checkbox.addEventListener('click', () => {
+        trs[index + 1].classList.toggle("selected");
 
+        if (checkbox.checked === true) {
+            deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
+        } else {
+            const isSomeCheckboxSelected = checkboxes.forEach(checkbox => {
+                if (checkbox.checked === true) {
+                    return true;
+                }
+            })
+            if (!isSomeCheckboxSelected) {
+                deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
+            } 
+        }
         let j = 0;
         for (let i = 0; i < checkboxes.length; i++) {
             if (trs[i].classList.contains("selected")) {
                 j++;
             }
-        }
-        if (j === articleImages.length) {
-            selectAll.checked = true;
-        } else {
-            selectAll.checked = false;
         }
     });
 });
