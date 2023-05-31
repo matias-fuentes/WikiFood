@@ -1,7 +1,7 @@
 {% extends "template.html" %}
 
 {% block profile %}
-    <form class="profile-form" method="POST" enctype="multipart/form-data">
+    <form class="profile-form" method="post" enctype="multipart/form-data">
         <div class="banner">
             {% if profileInfo['bannerPic'] %}
                 <img
@@ -61,6 +61,14 @@
             <h1 class="no-mrg">{{ profileInfo['username'] }}</h1>
         </div>
 
+        {% if successfulMessage %}
+            <div class="successfulMessage__container">
+                <div class="successfulMessage">
+                    <h3>{{ successfulMessage }}</h3>
+                </div>
+            </div>
+        {% endif %}
+
         <div class="saved-articles__header">
             <button class="saved-articles__deleteBtn">
                 <img class="saved-articles__deleteBtn--icon" src="../static/svgs/profile/delete.svg" />
@@ -86,7 +94,7 @@
                 {% for article in profileInfo['savedArticles'] %}
                     <tr>
                         <td>
-                            <input class="saved-articles__checkbox" type="checkbox" />
+                            <input class="saved-articles__checkbox" type="checkbox" name="articles" value="{{ article['id'] }}" />
                         </td>
                         <td>
                             <a

@@ -1,8 +1,6 @@
-import os
-import pyrebase
 import requests
 
-from PIL import Image
+from os import environ
 from re import fullmatch
 from pathlib import Path
 from bson import ObjectId
@@ -14,13 +12,14 @@ from typing import TypedDict, Union, Optional
 from werkzeug.security import check_password_hash
 from werkzeug.wrappers import Response as RedirectResponse
 from flask import redirect, render_template, request, session
+from firebase import initialize_app
 
 load_dotenv(find_dotenv())
-spoonacularAPIKey: Optional[str] = os.environ.get("SPOONACULAR_API_KEY")
+spoonacularAPIKey: Optional[str] = environ.get("SPOONACULAR_API_KEY")
 
 
 def searchPost() -> Union[RedirectResponse, None]:
-    query: str | None = request.form.get("search")
+    query: str = request.form.get("search")
     if query:
         return redirect(f"/articles?q={query}")
     else:
@@ -63,7 +62,7 @@ def getUsername(usersTable, loginId):
 # Smartly recognizes whether the user has tried to log in with either his username or his
 # email, and validates the login
 def isValidLogin(user, password, regExs, session):
-    usernameOrEmail: str | None = None
+    usernameOrEmail = None
 
     # Before consulting anything, it first checks whether the username or email have the
     # correct syntax or not
@@ -82,7 +81,7 @@ def isValidLogin(user, password, regExs, session):
         # Now that we know that the syntax for both username/email and password are
         # valid, we first consult with the database to find out whether the user exists
         # or not
-        connection = MongoClient(os.environ.get("MONGODB_URI"))
+        connection = MongoClient(environ.get("MONGODB_URI"))
         usersTable = getDbTable(connection, "users")
         userExists = usersTable.find_one({f"{usernameOrEmail}": user}, {"hash": 1})
 
@@ -114,7 +113,7 @@ def isValidLogin(user, password, regExs, session):
 apiDomain: str = "https://api.spoonacular.com"
 
 
-# Make queries to search at the API
+# # Make queries to search at the API
 def query(search: str) -> dict:
     url: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={search}&number=25&addRecipeInformation=true"
     response: dict = requests.get(url).json()
@@ -122,7 +121,7 @@ def query(search: str) -> dict:
     return response
 
 
-# Make queries to get information of the API
+# # Make queries to get information of the API
 def getArticle(savedArticlesTable, articleId):
     url = f"{apiDomain}/recipes/{articleId}/information?apiKey={spoonacularAPIKey}&includeNutrition=false"
     article = requests.get(url).json()
@@ -148,11 +147,12 @@ def getArticle(savedArticlesTable, articleId):
         if savedArticle:
             article["isSaved"]: bool = True
 
-    winePrice = float(
-        article["winePairing"]["productMatches"][0]["price"].replace("$", "")
-    )
-    winePrice = "{:.2f}".format(winePrice)
-    article["winePairing"]["productMatches"][0]["price"] = winePrice
+    if "productMatches" in article["winePairing"]:
+        winePrice = float(
+            article["winePairing"]["productMatches"][0]["price"].replace("$", "")
+        )
+        winePrice = "{:.2f}".format(winePrice)
+        article["winePairing"]["productMatches"][0]["price"] = winePrice
 
     return article
 
@@ -190,7 +190,7 @@ def cropImage(image):
 
 
 def getProfileInfo(loginId):
-    connection = MongoClient(os.environ.get("MONGODB_URI"))
+    connection = MongoClient(environ.get("MONGODB_URI"))
     usersTable = getDbTable(connection, "users")
     savedArticlesTable = getDbTable(connection, "savedArticles")
 
@@ -227,26 +227,38 @@ class ProfileImages(TypedDict):
 # Saves images (banner and profile pictures), keeps a record of the images of each image of each user,
 # and updates the uploaded images
 def uploadImage(profilePic, bannerPic, username, connection, loginId):
+    # Firebase Storage configuration object
     config = {
-        "apiKey": os.environ.get("FIREBASE_API_KEY"),
-        "authDomain": os.environ.get("AUTH_DOMAIN"),
-        "projectId": os.environ.get("PROJECT_ID"),
-        "storageBucket": os.environ.get("STORAGE_BUCKET"),
-        "messagingSenderId": os.environ.get("MESSAGING_SENDER_ID"),
-        "appId": os.environ.get("APP_ID"),
-        "measurementId": os.environ.get("MEASUREMENT_ID"),
-        "databaseURL": os.environ.get("DATABASE_URL"),
+        "apiKey": environ.get("FIREBASE_API_KEY"),
+        "authDomain": environ.get("AUTH_DOMAIN"),
+        "databaseURL": environ.get("DATABASE_URL"),
+        "projectId": environ.get("PROJECT_ID"),
+        "storageBucket": environ.get("STORAGE_BUCKET"),
+        "messagingSenderId": environ.get("MESSAGING_SENDER_ID"),
+        "appId": environ.get("APP_ID"),
+        "measurementId": environ.get("MEASUREMENT_ID"),
+        "type": environ.get("TYPE"),
+        "projectId": environ.get("PROJECT_ID"),
+        "privateKeyId": environ.get("PRIVATE_KEY_ID"),
+        "privateKey": environ.get("PRIVATE_KEY"),
+        "clientEmail": environ.get("CLIENT_EMAIL"),
+        "clientId": environ.get("CLIENT_ID"),
+        "authUri": environ.get("AUTH_URI"),
+        "tokenUri": environ.get("TOKEN_URI"),
+        "authProviderX509CertURL": environ.get("AUTH_PROVIDER_X509_CERT_URL"),
+        "clientX509CertURL": environ.get("CLIENT_X509_CERT_URL"),
+        "universeDomain": environ.get("UNIVERSE_DOMAIN"),
     }
 
-    firebase = pyrebase.initialize_app(config)
-    storage = firebase.storage()
-    profilePicsBasePath = "static/temp/profilePics/"
-    bannerPicsBasePath = "static/temp/bannerPics/"
-    usersTable = getDbTable(connection, "users")
+    # Initializing Firebase app
+    firebaseApp = initialize_app(config)
+    storage = firebaseApp.storage()
 
     successfulMessage = "The image has been uploaded successfully!"
     errorMessage = "Allowed image types are: png, jpg, jpeg, webp, and bmp."
 
+    profileInfo = getProfileInfo(loginId)
+    usersTable = getDbTable(connection, "users")
     if profilePic and bannerPic:
         if allowedImage(profilePic.filename) and allowedImage(bannerPic.filename):
             profilePic.filename = secure_filename(
@@ -256,34 +268,17 @@ def uploadImage(profilePic, bannerPic, username, connection, loginId):
                 str(Path(bannerPic.filename).with_suffix(".webp"))
             )
 
-            with Image.open(profilePic) as openedProfilePic:
-                openedProfilePic = cropImage(openedProfilePic)
-                openedProfilePic.save(
-                    os.path.join(profilePicsBasePath, profilePic.filename), "webp"
-                )
+            storage.child(profilePic.filename).put(profilePic.read())
+            storage.child(bannerPic.filename).put(bannerPic.read())
 
-            with Image.open(bannerPic) as openedBannerPic:
-                openedBannerPic.save(
-                    os.path.join(bannerPicsBasePath, bannerPic.filename), "webp"
-                )
-
-            storage.child(profilePic.filename).put(
-                profilePicsBasePath + profilePic.filename
-            )
-            storage.child(bannerPic.filename).put(
-                bannerPicsBasePath + bannerPic.filename
-            )
+            profilePic.close()
+            bannerPic.close()
 
             updatedValue = {
                 "profilePic": profilePic.filename,
                 "bannerPic": bannerPic.filename,
             }
             usersTable.update_one({"username": username}, {"$set": updatedValue}, True)
-
-            os.remove(profilePicsBasePath + profilePic.filename)
-            os.remove(bannerPicsBasePath + bannerPic.filename)
-
-            profileInfo = getProfileInfo(loginId)
             connection.close()
 
             return render_template(
@@ -307,25 +302,14 @@ def uploadImage(profilePic, bannerPic, username, connection, loginId):
                 str(Path(profilePic.filename).with_suffix(".webp"))
             )
 
-            with Image.open(profilePic) as openedProfilePic:
-                openedProfilePic = cropImage(openedProfilePic)
-                openedProfilePic.save(
-                    os.path.join(profilePicsBasePath, profilePic.filename), "webp"
-                )
-
-            storage.child(profilePic.filename).put(
-                profilePicsBasePath + profilePic.filename
-            )
+            storage.child(profilePic.filename).put(profilePic.read())
+            profilePic.close()
 
             usersTable.update_one(
                 {"username": username},
                 {"$set": {"profilePic": profilePic.filename}},
                 True,
             )
-
-            os.remove(profilePicsBasePath + profilePic.filename)
-
-            profileInfo = getProfileInfo(loginId)
             connection.close()
 
             return render_template(
@@ -349,22 +333,12 @@ def uploadImage(profilePic, bannerPic, username, connection, loginId):
                 str(Path(bannerPic.filename).with_suffix(".webp"))
             )
 
-            with Image.open(bannerPic) as openedBannerPic:
-                openedBannerPic.save(
-                    os.path.join(bannerPicsBasePath, bannerPic.filename), "webp"
-                )
-
-            storage.child(bannerPic.filename).put(
-                bannerPicsBasePath + bannerPic.filename
-            )
+            storage.child(bannerPic.filename).put(bannerPic.read())
+            bannerPic.close()
 
             usersTable.update_one(
                 {"username": username}, {"$set": {"bannerPic": bannerPic.filename}}
             )
-
-            os.remove(bannerPicsBasePath + bannerPic.filename)
-
-            profileInfo = getProfileInfo(loginId)
             connection.close()
 
             return render_template(
@@ -383,9 +357,9 @@ def uploadImage(profilePic, bannerPic, username, connection, loginId):
             )
 
 
-# With this loop we can extract the article ID from the URL. Example:
-# URL: 'https://.../articles/pizza-bites-with-pumpkin-19234984'
-# Article ID extracted: 19234984
+# # With this loop we can extract the article ID from the URL. Example:
+# # URL: 'https://.../articles/pizza-bites-with-pumpkin-19234984'
+# # Article ID extracted: 19234984
 def getArticleId(articleURL):
     startPoint = 0
     for i in range(len(articleURL) - 1, -1, -1):

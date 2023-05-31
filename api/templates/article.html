@@ -5,6 +5,13 @@
         <div class="article">
             {% if article['image'] %}
                 <div class="flex-vertical general-info">
+                    {% if successfulMessage %}
+                        <div class="successfulMessage__container">
+                            <div class="successfulMessage">
+                                <h3>{{ successfulMessage }}</h3>
+                            </div>
+                        </div>
+                    {% endif %}
                     <div class="stamp-container flex-vertical">
                         {% if article['veryHealthy'] %}
                             <div class="flex-vertical">

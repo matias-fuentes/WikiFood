@@ -3,47 +3,105 @@ const deleteBtn = document.querySelector('.saved-articles__deleteBtn');
 const checkboxes = Array.from(document.querySelectorAll('.saved-articles__checkbox'));
 const trs = Array.from(document.querySelectorAll('tr'));
 
+const deleteBtnClassName = 'saved-articles__deleteBtn saved-articles__deleteBtn--selected';
+
 selectAll.addEventListener('click', () => {
-    if (selectAll.checked) {
-        deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
+    if (selectAll.checked === true) {
+        if (deleteBtn.className !== deleteBtnClassName) {
+            deleteBtn.classList.add('saved-articles__deleteBtn--selected');
+        }
+
         checkboxes.forEach(checkbox => {
             checkbox.checked = true;
         });
+
         trs.forEach(tr => {
-            tr.classList.toggle("selected");
+            if (tr.className !== 'selected') {
+                tr.classList.add("selected");
+            }
         })
     } else {
-        deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
+        if (deleteBtn.className === deleteBtnClassName) {
+            deleteBtn.classList.remove('saved-articles__deleteBtn--selected');
+        }
+
         checkboxes.forEach(checkbox => {
             checkbox.checked = false;
         });
+
         trs.forEach(tr => {
-            tr.classList.toggle("selected");
+            if (tr.className === 'selected') {
+                tr.classList.remove("selected");
+            }
         })
     }
 });
 
 checkboxes.forEach((checkbox, index) => {
     checkbox.addEventListener('click', () => {
-        trs[index + 1].classList.toggle("selected");
-
+        const headerTableRow = trs[0];
+        const currentTableRow = trs[index + 1];
+        const isSomeCheckboxSelected = getIsSomeCheckboxSelected();
+        const isSomeCheckboxNOTSelected = getIsSomeCheckboxNOTSelected();
         if (checkbox.checked === true) {
-            deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
-        } else {
-            const isSomeCheckboxSelected = checkboxes.forEach(checkbox => {
-                if (checkbox.checked === true) {
-                    return true;
+            if (currentTableRow.className !== 'selected') {
+                currentTableRow.classList.add('selected');
+            }
+            
+            if (isSomeCheckboxSelected && deleteBtn.className !== deleteBtnClassName) {
+                deleteBtn.classList.add('saved-articles__deleteBtn--selected');
+            }
+
+            if (!isSomeCheckboxNOTSelected) {
+                selectAll.checked = true;
+                if (headerTableRow.className !== 'selected') {
+                    headerTableRow.classList.add('selected');
                 }
-            })
+            }
+        } else {
+            if (currentTableRow.className === 'selected') {
+                currentTableRow.classList.remove('selected');
+            }
+            
             if (!isSomeCheckboxSelected) {
-                deleteBtn.classList.toggle('saved-articles__deleteBtn--selected');
-            } 
-        }
-        let j = 0;
-        for (let i = 0; i < checkboxes.length; i++) {
-            if (trs[i].classList.contains("selected")) {
-                j++;
+                selectAll.checked = false;
+                if (headerTableRow.className === 'selected') {
+                    headerTableRow.classList.remove('selected');
+                }
+
+                if (deleteBtn.className === deleteBtnClassName) {
+                    deleteBtn.classList.remove('saved-articles__deleteBtn--selected');
+                }
+            }
+
+            if (isSomeCheckboxNOTSelected) {
+                selectAll.checked = false;
+                if (headerTableRow.className === 'selected') {
+                    headerTableRow.classList.remove('selected');
+                }
+            }
+
+            if (currentTableRow.className === 'selected') {
+                currentTableRow.classList.remove("selected");
             }
         }
     });
 });
+
+const getIsSomeCheckboxSelected = () => {
+    for (let i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked === true) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const getIsSomeCheckboxNOTSelected = () => {
+    for (let i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked === false) {
+            return true;
+        }
+    }
+    return false;
+}

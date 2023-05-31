@@ -15,13 +15,13 @@ from flask import (
     Markup,
 )
 from helpers import (
+    searchPost,
     login_required,
     getLoginId,
     isValidLogin,
     query,
     getArticle,
     saveArticle,
-    searchPost,
     uploadImage,
     getDbTable,
     getArticleId,
@@ -32,13 +32,13 @@ load_dotenv(find_dotenv())
 app: Flask = Flask(__name__)
 app.secret_key = environ.get("SECRET_KEY")
 
-# Ensure templates are auto-reloaded
+# # Ensure templates are auto-reloaded
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
-# Configure upload settings
+# # Configure upload settings
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
-# Type aliases
+# # Type aliases
 SearchPostResponse = Union[RedirectResponse, None]
 
 
@@ -52,7 +52,7 @@ def after_request(response: FlaskResponse) -> FlaskResponse:
 
 
 @app.route("/", methods=["GET", "POST"])
-def index() -> Union[SearchPostResponse, str]:
+def index():
     if request.method == "POST":
         return searchPost()
 
@@ -66,7 +66,7 @@ def searchArticles() -> Union[SearchPostResponse, str]:
         return searchPost()
 
     # Handle empty state if there is no query param on the URL
-    search: str | None = request.args.get("q")
+    search: str = request.args.get("q")
     loginId = getLoginId(session.get("loginId"))
 
     if not search:
@@ -95,19 +95,28 @@ def articleId(articleURL):
 
     articleId = getArticleId(articleURL)
     article = getArticle(savedArticlesTable, articleId)
-    print(article["winePairing"]["productMatches"])
     loginId = getLoginId(session.get("loginId"))
 
-    # Handle POST method if the user search someting on the search bar
+    # Handle POST method if the user searchs someting on the search bar, or if he saves the article
     if request.method == "POST":
         search = request.form.get("search")
 
         if search:
+            connection.close()
             return searchPost()
-
         if loginId:
             saveArticle(savedArticlesTable, articleId, loginId)
+            connection.close()
+
+            successfulMessage = "Changes saved successfully! You'll see the changes in a couple of seconds."
+            return render_template(
+                "article.html",
+                article=article,
+                loginId=loginId,
+                successfulMessage=successfulMessage,
+            )
         else:
+            connection.close()
             return redirect("/login")
 
     connection.close()
@@ -188,11 +197,13 @@ def signup():
             )
 
             if exists:
+                connection.close()
                 return render_template("signup.html", errorMessage=errorMessage)
 
             exists = usersTable.find_one({"email": email}, {"email": 1, "_id": 0})
 
             if exists:
+                connection.close()
                 errorMessage = errorMessage.replace("username", "email")
                 return render_template("signup.html", errorMessage=errorMessage)
 
@@ -266,26 +277,46 @@ def logout():
 def profile():
     connection = MongoClient(environ.get("MONGODB_URI"))
     loginId = getLoginId(session.get("loginId"))
+    profileInfo = getProfileInfo(loginId)
 
     if request.method == "POST":
         search = request.form.get("search")
 
         if search:
+            connection.close()
             return redirect(f"/articles?q={search}")
 
         profilePic = request.files["profilePic"]
         bannerPic = request.files["bannerPic"]
-
         if profilePic or bannerPic:
             usersTable = getDbTable(connection, "users")
             username = usersTable.find_one({"_id": loginId}, {"username": 1, "_id": 0})[
                 "username"
             ]
+
             return uploadImage(profilePic, bannerPic, username, connection, loginId)
 
-    profileInfo = getProfileInfo(loginId)
-    connection.close()
+        articleList = request.form.getlist("articles")
+        if articleList:
+            articleListInt = [eval(article) for article in articleList]
+            savedArticlesTable = getDbTable(connection, "savedArticles")
+            savedArticlesTable.delete_many(
+                {"userId": loginId, "articleId": {"$in": articleListInt}}
+            )
+            connection.close()
 
+            successfulMessage = "Article(s) deleted successfully! You'll see the changes in a couple of seconds."
+            return render_template(
+                "profile.html",
+                profileInfo=profileInfo,
+                loginId=loginId,
+                successfulMessage=successfulMessage,
+            )
+
+        connection.close()
+        return render_template("profile.html", profileInfo=profileInfo, loginId=loginId)
+
+    connection.close()
     return render_template(
         "profile.html",
         profileInfo=profileInfo,

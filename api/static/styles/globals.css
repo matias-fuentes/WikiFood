@@ -179,6 +179,22 @@ td {
     font-size: 1.2rem;
 }
 
+.successfulMessage__container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 3.2rem;
+    flex-wrap: wrap;
+}
+
+.successfulMessage {
+    width: 90%;
+    font-size: 1.2rem;
+    text-align: center;
+    padding: 0.6rem 1.2rem;
+    color: rgb(9, 100, 55);
+    background-color: rgb(138, 235, 170);
+}
+
 @media (max-width: 1024px) and (orientation: landscape) and (min-aspect-ratio: 13/9) {
     header {
         padding: 0rem 6rem; 
@@ -233,6 +249,10 @@ td {
 
     td {
         padding: 0;
+    }
+
+    .successfulMessage {
+        width: 60rem;
     }
 }
 
