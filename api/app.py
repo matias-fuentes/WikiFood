@@ -14,7 +14,7 @@ from flask import (
     Response as FlaskResponse,
     Markup,
 )
-from helpers import (
+from api.helpers import (
     searchPost,
     login_required,
     getLoginId,
