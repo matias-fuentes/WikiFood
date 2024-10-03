@@ -14,7 +14,7 @@ from flask import (
     Response as FlaskResponse,
     Markup,
 )
-from api.helpers import (
+from helpers import (
     searchPost,
     login_required,
     getLoginId,
@@ -125,7 +125,7 @@ def articleId(articleURL):
 
 # RegExs to validate inputs
 userRegEx = "[A-Za-z0-9._-]{3,16}"
-emailRegEx = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}"
+emailRegEx = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+.[A-Z|a-z]{2,}"
 passwordRegEx = "[A-Za-z0-9¡!¿?$+._-]{6,16}"
 
 

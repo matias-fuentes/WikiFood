@@ -115,7 +115,9 @@ apiDomain: str = "https://api.spoonacular.com"
 
 # # Make queries to search at the API
 def query(search: str) -> dict:
-    url: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={search}&number=25&addRecipeInformation=true"
+    url: str = (
+        f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={search}&number=25&addRecipeInformation=true"
+    )
     response: dict = requests.get(url).json()
 
     return response
@@ -129,7 +131,9 @@ def getArticle(savedArticlesTable, articleId):
     # Sometimes the "recipes/{articleId}/information" Spoonacular API endpoint does not include "image" or "summary" keys in the response.
     # In those cases, we make a call on the "recipes/complexSearch" API endpoint to retrieve and include those remaining values.
     if not "image" in article or not "summary" in article:
-        searchEndpointURL: str = f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={article['title']}&number=1"
+        searchEndpointURL: str = (
+            f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={article['title']}&number=1"
+        )
         searchedArticle = requests.get(searchEndpointURL).json()
 
         if not "image" in article:
@@ -147,7 +151,8 @@ def getArticle(savedArticlesTable, articleId):
         if savedArticle:
             article["isSaved"]: bool = True
 
-    if "productMatches" in article["winePairing"]:
+    print(article)
+    if "winePairing" in article and "productMatches" in article["winePairing"]:
         winePrice = float(
             article["winePairing"]["productMatches"][0]["price"].replace("$", "")
         )

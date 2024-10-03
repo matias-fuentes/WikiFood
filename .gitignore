@@ -1,3 +1,4 @@
+/api/.env
 /api/__pycache__
 /api/.mypy_cache
 /env
