@@ -1,16 +1,12 @@
 .stamp-container {
+    gap: 1.5rem;
     justify-content: center;
     flex-direction: row;
     width: 100%;
     flex-wrap: wrap;
 }
 
-.stamp-container > div {
-    margin: 0 0.8rem;
-    width: 5.6rem;
-}
-
-.stamp-container > p {
+.stamp-container > div > div > p {
     margin: 0;
 }
 
@@ -55,10 +51,6 @@
     width: 100%;
 }
 
-.image-copy > * {
-    margin-bottom: 1.6rem;
-}
-
 .image-copy > img {
     object-fit: contain;
     max-height: 50vh;
@@ -73,6 +65,7 @@
 
 .characteristics > h1 {
     display: none;
+    text-align: start;
 }
 
 .characteristics > div {
@@ -81,12 +74,12 @@
 
 .description {
     padding: 1.2rem;
+    padding-top: 0;
     border-radius: 5px;
-    background-color: rgba(0, 132, 60, .25);
 }
 
-.description-container > * {
-    margin-bottom: 2.4rem;
+.description > p {
+    font-size: 1.5rem;
 }
 
 .description > p {
@@ -136,14 +129,18 @@
     border-radius: 5px;
 }
 
+.step-by-step-container {
+    padding: 1.5rem;
+    gap: 1.5rem;
+    display: flex;
+}
+
 .step-by-step-container:nth-of-type(odd) {
     background-color: rgba(235, 105, 59, .5);
 }
 
 .step-number-container {
     align-items: flex-start;
-    width: 15%;
-    padding: 1.6rem;
 }
 
 .step-number {
@@ -160,17 +157,20 @@
 }
 
 .step-description-container {
+    display: flex;
     text-align: start;
-    align-items: start;
-    width: 85%;
+    align-items: center;
+    width: 100%;
+}
+
+.step-description-container > p {
+    margin: 0;
+    width: 100%;
+    font-size: 1.5rem;
 }
 
 .title {
     justify-content: space-around;
-}
-
-.step-and-wine > * {
-    margin-bottom: 3.2rem;
 }
 
 .copy {
@@ -196,6 +196,43 @@
     background: none;
 }
 
+.save-article-container {
+    display: flex;
+    margin-top: 1rem;
+    justify-content: space-between;
+}
+
+.article-action-buttons-container {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.article-diets-classification {
+    gap: 1.5rem;
+    display: flex;
+}
+
+.description {
+    margin-bottom: 0;
+}
+
+.description > h1 {
+    margin-top: 0;
+    text-align: start;
+}
+
+.desk-flex {
+    display: none;
+}
+
+.mobile-flex {
+    display: flex;
+}
+
+.attributes-container {
+    margin: 1.6rem 0 0.8rem 0;
+}
+
 @media (min-width: 1024px) and (min-aspect-ratio: 13/9) {
     .btn-price:hover {
         background: none !important;
@@ -215,10 +252,6 @@
         padding: 0 !important;
     }
 
-    .stamp-container > div {
-        width: 16.66%;
-    }
-
     .stamp > img {
         width: 2.4rem;
     }
@@ -231,7 +264,6 @@
     }
 
     .general-info > * {
-        margin-bottom: 2.4rem;
         padding: 1.6rem;
     }
 
@@ -240,7 +272,7 @@
     }
 
     .image-copy {
-        max-width: 40vw;
+        max-width: 75%;
     }
 
     .image-copy > h1 {
@@ -253,6 +285,14 @@
 
     .desk-flex-row {
         flex-direction: row;
+    }
+
+    .desk-flex {
+        display: flex;
+    }
+
+    .mobile-flex {
+        display: none;
     }
 
     .characteristics {
@@ -268,8 +308,8 @@
     }
 
     .primary-info {
+        font-size: 1.5rem;
         justify-content: flex-start;
-        font-size: 1.2rem;
     }
 
     .primary-info > * {
@@ -286,9 +326,8 @@
     }
 
     .step-and-wine > * {
-        width: 50%;
+        width: 100%;
         height: auto;
-        margin: 0 6.4rem;
         border-radius: 5px;
         box-shadow: 4px 4px 8px rgba(0 0 0 / 25%);
     }
@@ -316,11 +355,6 @@
 
     .save-article-form {
         display: flex;
-    }
-
-    .save-article-container {
-        display: flex;
-        justify-content: flex-end;
     }
 
     .save-article {

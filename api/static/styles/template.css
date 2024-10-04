@@ -61,6 +61,7 @@
 
 .search-glass {
     right: 4px;
+    height: 31px;
     cursor: pointer;
     padding: 0.8rem;
     position: absolute;

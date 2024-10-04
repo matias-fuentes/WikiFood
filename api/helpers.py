@@ -130,7 +130,7 @@ def getArticle(savedArticlesTable, articleId):
 
     # Sometimes the "recipes/{articleId}/information" Spoonacular API endpoint does not include "image" or "summary" keys in the response.
     # In those cases, we make a call on the "recipes/complexSearch" API endpoint to retrieve and include those remaining values.
-    if not "image" in article or not "summary" in article:
+    if not "image" in article or not "summary" in article and "title" in article:
         searchEndpointURL: str = (
             f"{apiDomain}/recipes/complexSearch?apiKey={spoonacularAPIKey}&query={article['title']}&number=1"
         )
@@ -151,7 +151,6 @@ def getArticle(savedArticlesTable, articleId):
         if savedArticle:
             article["isSaved"]: bool = True
 
-    print(article)
     if "winePairing" in article and "productMatches" in article["winePairing"]:
         winePrice = float(
             article["winePairing"]["productMatches"][0]["price"].replace("$", "")
